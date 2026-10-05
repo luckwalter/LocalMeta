@@ -1,0 +1,44 @@
+# ---- .NET 构建产物 ----
+bin/
+obj/
+*.user
+*.suo
+publish/
+
+# ---- 运行产物 ----
+logs/
+*.log
+lists/
+*.db
+*.db-shm
+*.db-wal
+*.bak
+*.bak_*
+
+# ---- 打包产物 ----
+*.zip
+*.nupkg
+
+# ---- 数据源与图片（体积大且非源码，不入库）----
+avatars/
+*.jpg
+*.jpeg
+*.webp
+*.png
+
+# ---- 本机路径（避免泄露用户名 / 内网结构）----
+# 配置里若写了绝对路径，提交前替换成占位符或相对路径
+# 例：<WORKDIR> / <USERPROFILE> / <NAS_IP>
+
+# ---- 编辑器 ----
+.vs/
+.vscode/
+.idea/
+*.swp
+*~
+
+# ---- Python ----
+.venv/
+venv/
+__pycache__/
+*.pyc

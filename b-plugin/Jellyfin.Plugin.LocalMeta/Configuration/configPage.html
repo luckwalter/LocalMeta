@@ -1,0 +1,133 @@
+<div id="LocalMetaConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+     data-require="emby-input,emby-checkbox,emby-button">
+  <div data-role="content">
+    <form id="LocalMetaConfigPageForm">
+      <div class="verticalSection">
+        <h2 class="sectionTitle">LocalMeta —— 本地兜底刮削</h2>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">启用插件</label>
+          <input is="emby-checkbox" type="checkbox" id="enablePlugin" class="emby-checkbox" />
+          <div class="fieldDescription">关掉后所有 provider 与计划任务都不动数据。默认开。</div>
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">目标媒体库</label>
+          <input is="emby-input" type="text" id="libraryNames" class="emby-input" />
+          <div class="fieldDescription">多个用逗号分隔，如 Japan Pron Movie；留空表示不限库。</div>
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">只补空，不覆盖</label>
+          <input is="emby-checkbox" type="checkbox" id="overwriteExisting" class="emby-checkbox" />
+          <div class="fieldDescription">默认关闭=只填空的。打开会让本地源覆盖 metatube 已刮到的内容。</div>
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">单次最多处理人数</label>
+          <input is="emby-input" type="number" id="maxItemsPerRun" class="emby-input" min="1" max="10000" />
+          <div class="fieldDescription">大库建议设 100，避免一次跑太久。</div>
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">写库前备份</label>
+          <input is="emby-checkbox" type="checkbox" id="backupBeforeWrite" class="emby-checkbox" />
+        </div>
+      </div>
+
+      <div class="verticalSection">
+        <h2 class="sectionTitle">资料源</h2>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">JavBoss 资料库路径</label>
+          <input is="emby-input" type="text" id="profileDbPath" class="emby-input" />
+          <div class="fieldDescription">留空自动在插件目录与 Jellyfin 数据目录找 javboss.db。</div>
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">头像源目录（Gfriends 导出）</label>
+          <input is="emby-input" type="text" id="avatarSourceDir" class="emby-input" />
+          <div class="fieldDescription">其下应有 avatars/ 子目录与 gfriends_plan.json。留空用插件目录旁的 gf/。</div>
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">姓名替换规则</label>
+          <textarea is="emby-input" id="nameSubstitutes" class="emby-input" rows="4"></textarea>
+          <div class="fieldDescription">每行一条「原名|替换名」；用于 Jellyfin 里带括号别名导致对不上的情况。</div>
+        </div>
+      </div>
+
+      <div class="verticalSection">
+        <h2 class="sectionTitle">输出格式</h2>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">简介模板</label>
+          <textarea is="emby-input" id="overviewTemplate" class="emby-input" rows="3"></textarea>
+          <div class="fieldDescription">占位符：{bust} {waist} {hips} {cup} {height} {debut}。留空用默认模板。</div>
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">罩杯字母表</label>
+          <input is="emby-input" type="text" id="cupLetters" class="emby-input" />
+          <div class="fieldDescription">cup 列在源里是数字索引，0 映射到首字母。默认 ABCDEFGHIJKLMNOPQ。</div>
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">身高区间</label>
+          <input is="emby-input" type="number" id="heightMin" class="emby-input" min="50" max="250" />
+          <input is="emby-input" type="number" id="heightMax" class="emby-input" min="50" max="250" />
+          <div class="fieldDescription">越界的脏数据直接跳过，不写库。</div>
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">围度区间</label>
+          <input is="emby-input" type="number" id="girthMin" class="emby-input" min="20" max="200" />
+          <input is="emby-input" type="number" id="girthMax" class="emby-input" min="20" max="200" />
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">提供头像</label>
+          <input is="emby-checkbox" type="checkbox" id="provideImages" class="emby-checkbox" />
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">提供文字资料</label>
+          <input is="emby-checkbox" type="checkbox" id="provideMetadata" class="emby-checkbox" />
+        </div>
+      </div>
+
+      <div>
+        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+          <span>保存</span>
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <script type="text/javascript">
+    (function () {
+      var form = document.querySelector('#LocalMetaConfigPageForm');
+      if (!form) { return; }
+
+      var cfg = {};
+      var fields = ['enablePlugin', 'libraryNames', 'overwriteExisting', 'maxItemsPerRun',
+        'backupBeforeWrite', 'profileDbPath', 'avatarSourceDir', 'nameSubstitutes',
+        'overviewTemplate', 'cupLetters', 'heightMin', 'heightMax', 'girthMin', 'girthMax',
+        'provideImages', 'provideMetadata'];
+
+      function loadConfig() {
+        return ApiClient.getPluginConfiguration('7c4e0f1a-9b62-4d8e-9f31-2a6d5f7c1b40').then(function (c) {
+          cfg = c || {};
+          fields.forEach(function (id) {
+            var el = document.getElementById(id);
+            if (!el) { return; }
+            if (el.type === 'checkbox') { el.checked = !!cfg[id]; }
+            else { el.value = cfg[id] === undefined ? '' : cfg[id]; }
+          });
+        });
+      }
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        fields.forEach(function (id) {
+          var el = document.getElementById(id);
+          if (!el) { return; }
+          cfg[id] = el.type === 'checkbox' ? el.checked : el.value;
+        });
+        ApiClient.updatePluginConfiguration(
+          '7c4e0f1a-9b62-4d8e-9f31-2a6d5f7c1b40', cfg).then(function (result) {
+            ApiClient.reloadPluginConfiguration('7c4e0f1a-9b62-4d8e-9f31-2a6d5f7c1b40');
+            Dashboard.processPluginConfigurationUpdateResult(result);
+          });
+      });
+
+      loadConfig();
+    })();
+  </script>
+</div>

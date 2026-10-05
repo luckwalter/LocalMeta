@@ -1,0 +1,88 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>false</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyVersion>0.3.0.0</AssemblyVersion>
+    <FileVersion>0.3.0.0</FileVersion>
+    <AssemblyName>Jellyfin.Plugin.LocalMeta</AssemblyName>
+    <RootNamespace>Jellyfin.Plugin.LocalMeta</RootNamespace>
+    <PackageId>Jellyfin.Plugin.LocalMeta</PackageId>
+    <Version>0.3.0</Version>
+    <Authors>LocalMeta</Authors>
+    <Description>Local fallback provider for Jellyfin Person metadata (avatars + overview), designed to sit behind remote providers like MetaTube and only fill the gaps.</Description>
+    <IsPackable>false</IsPackable>
+
+    <!--
+      部署策略：只把本插件自己的 dll + 必需的第三方依赖拷进 plugins 目录，
+      绝不覆盖 Jellyfin 自带的 MediaBrowser.* / Jellyfin.* / Microsoft.Extensions.*。
+      这些由 Jellyfin 宿主统一提供，版本必须跟宿主一致，插件自带副本反而会引出版本冲突。
+    -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <!--
+    升级提示：
+    - 升 Jellyfin 大版本时，把下面 Jellyfin.Controller 的版本号一起改，
+      并用 dotnet-setup/apiprobe 重新取证接口签名（见 README「随 Jellyfin 升级」）。
+    - AssemblyVersion / Version 改这里，重新编译即可，不影响已保存的配置文件。
+    - 10.11.6 已实测：BaseItemKind 搬到 Jellyfin.Data.Enums；
+      IPluginConfiguration 已移除，改继承 BasePluginConfiguration；
+      GetMetadata 签名是 (ItemInfo, IDirectoryService, CancellationToken)；
+      IScheduledTask.ExecuteAsync(IProgress<double>, CancellationToken)，且必须实现 Key；
+      计划任务枚举是 TaskTriggerInfoType.IntervalTrigger（不是 TaskTriggerInfo.TriggerInterval）。
+  -->
+  <ItemGroup>
+    <PackageReference Include="Jellyfin.Controller" Version="10.11.6" />
+  </ItemGroup>
+
+  <!--
+    Microsoft.Data.Sqlite 只用于直读直写 jellyfin.db。
+    版本已对齐 Jellyfin 10.11.6 自带的 9.0.x（实测 C:\Jellyfin\Microsoft.Data.Sqlite.dll = 9.0.1125.51902），
+    避免插件与宿主抢 SQLite 原生库。
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+  </ItemGroup>
+
+  <!--
+    Newtonsoft.Json 仅用于 Sources/LocalMetaSources.cs 解析 gfriends_plan.json 这个外部 JSON 文件，
+    与 Jellyfin 插件配置序列化无关（配置走 MediaBrowser.Model.Serialization.IXmlSerializer，即 XML）。
+    Jellyfin 10.11.6 自带 13.0.4，这里只作编译期引用。
+  -->
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <!-- 配置页：内嵌成资源，Plugin.GetPages() 用 EmbeddedResourcePath 引用 -->
+  <ItemGroup>
+    <EmbeddedResource Include="Configuration\configPage.html" />
+  </ItemGroup>
+
+  <!--
+    剔除所有由 Jellyfin.Controller 传递带进来的宿主程序集。
+    这些 DLL 属于 Jellyfin 本体，插件目录里不应该有副本：
+    覆盖会导致类型重复、程序集版本冲突，甚至让 Jellyfin 启动失败。
+
+    实现要点：Publish 之后 @(NoneToPublish) 已被消费，要改成直接枚举
+    $(PublishDir) 下的实际文件来删。判定：文件名以 MediaBrowser. / Jellyfin. 开头。
+    SQLitePCLRaw 与 Microsoft.Data.Sqlite 保留（原生 sqlite 引擎插件自用）。
+  -->
+  <Target Name="RemoveHostAssemblies" AfterTargets="Publish">
+    <!--
+      通配符 Jellyfin.*.dll 会连插件自己的 Jellyfin.Plugin.LocalMeta.dll 一起命中，
+      所以必须显式 Exclude 自身，否则主程序集被删掉，插件加载即失败。
+    -->
+    <ItemGroup>
+      <HostAssemblyToDelete
+        Include="$(PublishDir)MediaBrowser.*.dll;$(PublishDir)Jellyfin.*.dll"
+        Exclude="$(PublishDir)$(AssemblyName).dll" />
+    </ItemGroup>
+    <Delete Files="@(HostAssemblyToDelete)" />
+    <Message Importance="high" Text="[LocalMeta] 已剔除宿主程序集：@(HostAssemblyToDelete->'%(Filename)%(Extension)', ', ')" />
+    <Error Condition="!Exists('$(PublishDir)$(AssemblyName).dll')"
+           Text="[LocalMeta] 致命：插件主程序集在剔除后不存在，publish 失败。" />
+  </Target>
+
+</Project>

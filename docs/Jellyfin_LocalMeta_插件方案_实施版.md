@@ -1,0 +1,216 @@
+# Jellyfin 本地兜底刮削 LocalMeta —— A + B 实施版
+
+- 日期：2026-10-05
+- 基线：Japan Pron Movie 2522 部片 / 754 名演员（有图 678 = 89.9%，有简介 549 = 72.8%）
+- 定位不变：**本地兜底 + 增量补齐 + 自动止血，只在字段为空时补，永不覆盖**
+
+## 状态速览
+
+| | 内容 | 状态 | 位置 |
+|---|---|---|---|
+| **A** | 配置化守护脚本 + 每日计划任务 | ✅ **已上线并验证**（任务触发 result=0） | `localmeta/` |
+| **B** | `Jellyfin.Plugin.LocalMeta` 插件 | ✅ **编译通过 + 加载验证通过**（.NET 9 SDK 9.0.318 已装，见 `jellyfin-plugin-localmeta/README.md` 验证记录） | `jellyfin-plugin-localmeta/` |
+
+两阶段是**互为备份的同一套逻辑**：数据源、罩杯映射、姓名归一化规则两边对齐，行为不会分叉。
+
+---
+
+## 一、定位：插件不是去"找新源"
+
+三层缺口性质不同，不能指望一个插件一次解决：
+
+| 层 | 症状 | 能救吗 |
+|---|---|---|
+| **网络层** | MetaTube 近 48h 43 次错，36 次是 FANZA 刮削 5 秒超时 | ❌ 插件改不了网络 |
+| **源覆盖层** | 205 人无简介（176 人 javboss 有名字但字段全空 + 29 人查无此人）、76 人无图 | ❌ 插件不能凭空造数据 |
+| **自动化层** | 678 张图 + 194 条简介是**一次性脚本**落的盘 | ✅ 这才是插件该干的 |
+
+依据：Jellyfin 的 provider 管线按 `Order` 升序尝试，谁填上就停。本地 provider 排在后位，
+天然就是"MetaTube 没刮到才兜"，不需要任何互斥判断。
+
+---
+
+## 二、A 阶段：已上线
+
+### 交付物
+
+| 文件 | 作用 |
+|---|---|
+| `localmeta/config.json` | 全部配置（库名、路径、数据源、归一化规则、脏数据阈值） |
+| `localmeta/localmeta.py` | 主程序：扫缺口 → 补头像/简介 → 备份 → 写库 → 出报告 |
+| `localmeta/install_task.ps1` | 注册/卸载 Windows 计划任务 |
+| `localmeta/README.md` | 命令、配置字段、加数据源方法、回滚 |
+| `localmeta/logs/`、`localmeta/lists/` | 日志与每轮报告 |
+
+### 实测
+
+```
+[13:36:49] 本库唯一演员: 754
+[13:36:41] 待补头像 76，待补简介 208
+[13:36:41] 头像 落地文件 0，无源 76
+[13:36:41] 简介 可补 2，无源 206
+[13:37:02] 已备份 -> jellyfin.db.bak_localmeta_20261005_133649 (46.9 MB)
+[13:37:02] 完成：头像文件 0 / 图记录 0 / 简介 2 / 耗时 12.4s
+```
+
+**幂等性得到验证**：今天已补的 678 张图、492 条简介被正确识别为"已有"，只扫剩余缺口。
+`--dry-run` 可空跑确认。
+
+计划任务 `LocalMeta-ActorRefill` 手动触发记录：
+
+```
+FIRE OK
+state=Ready
+lastRun=10/05/2026 13:40:28  result=0  nextRun=10/06/2026 03:10:00
+```
+
+### 三条硬规矩
+
+1. **幂等** —— 反复跑结果不变
+2. **只补不覆盖** —— 文件已存在 / 库里已有 Primary 图 / 已有 Overview 的全部跳过
+3. **配置驱动** —— 加数据源、换库名、调规则，改 `config.json` 就行
+
+---
+
+## 三、B 阶段：已编译通过 + 加载验证通过
+
+```
+jellyfin-plugin-localmeta/
+├─ build.ps1                                 编译 + 部署 / 卸载（含产物安全校验）
+└─ Jellyfin.Plugin.LocalMeta/
+   ├─ Jellyfin.Plugin.LocalMeta.csproj       net9.0 + Jellyfin.Controller 10.11.6
+   ├─ Plugin.cs                              BasePlugin<T> + IHasWebPages
+   ├─ PluginConfiguration.cs                 16 项配置，只增不删
+   ├─ Configuration/configPage.html          配置页，内嵌成资源
+   ├─ Sources/LocalMetaSources.cs            源抽象 + JavBoss + Gfriends + 工厂
+   ├─ Providers/LocalMetaPersonMetadataProvider.cs   ILocalMetadataProvider<Person>
+   ├─ Providers/LocalMetaPersonImageProvider.cs      IRemoteImageProvider
+   └─ Tasks/LocalMetaBackfillTask.cs                 IScheduledTask（每天一次）
+```
+
+**验证状态（2026-10-05）**：`.NET 9 SDK 9.0.318` 已装在 `<USERPROFILE>\.dotnet`
+（注：本机 `C:\Program Files\dotnet` 只有 runtime 无 SDK，且 PATH 里排前面，
+直接敲 `dotnet` 会命中空壳）。`build.ps1` 已实跑通过，
+另用 `dotnet-setup/loadtest` 反射加载产物，确认 Jellyfin 能识别
+`ILocalMetadataProvider<Person>` / `IRemoteImageProvider` / `IScheduledTask` 三个实现，
+配置页资源名与 `GetPages()` 拼接一致。
+
+### 扩展点是从本地 DLL 元数据取证出来的，不是照抄教程
+
+10.11 相比 10.9 有实质变动，照老教程写必编译不过。实测清单：
+
+| 接口 / 类型 | 真实位置 |
+|---|---|
+| `ILocalMetadataProvider<Person>` | `MediaBrowser.Controller.Providers`（**不是** `IMetadataProvider<T>`） |
+| `GetMetadata(ItemInfo, IDirectoryService, CancellationToken)` | 同上（10.x 不再是 `(result, ct)`） |
+| `GetSupportedImages` | 返回 `IEnumerable<ImageType>`（**不是** `BaseItemKind`） |
+| `RemoteImageInfo` | **`MediaBrowser.Model.Providers`** |
+| `BaseItemKind` | **`Jellyfin.Data.Enums`** |
+| 配置基类 | `BasePluginConfiguration`（**10.11 移除了 `IPluginConfiguration`**） |
+| 配置序列化 | `IXmlSerializer`（**XML，不是 JSON**） |
+| `IScheduledTask` | 10.11 **新增 `Key`**；`ExecuteAsync(IProgress<double>, CancellationToken)` progress 在前 |
+| 计划任务枚举 | `TaskTriggerInfoType.IntervalTrigger` |
+
+取证工具留在 `dotnet-setup/apiprobe`，升级 Jellyfin 时先跑它查签名，别先改代码。
+完整清单见 `jellyfin-plugin-localmeta/README.md`。
+
+插件走 `IHasWebPages` + `PluginPageInfo.EmbeddedResourcePath`（10.9+ 的路），
+**不是**老的 `GetConfigurationPageHtml()` 返回字符串。配 `Jellyfin.Controller 10.11.6`（net9.0）。
+
+调度用 `IScheduledTask` 而不是 `IHostedService`，好处是**后台 → 计划任务页能手工触发、能改触发条件**。
+
+### 部署安全阀
+
+`dotnet publish` 会把 `Jellyfin.Controller` 的传递依赖全带出来（38 个文件，
+含 604KB 的 `MediaBrowser.Controller.dll`）。覆盖进 `C:\Jellyfin` 会导致程序集版本冲突
+甚至 Jellyfin 起不来。csproj 加了 `RemoveHostAssemblies` 剔除，`build.ps1` 部署前再校验一次。
+
+---
+
+## 四、顺手查清的一件事：罩杯字母
+
+`javboss.jav_idol.cup` 存的是**数字索引**不是字母。映射错一位全库罩杯就错，
+所以用 `bust - waist` 差值反推验证（物理约束）：
+
+| cup 数字 | 字母 | 依据 |
+|---|---|---|
+| 6 | **G** | 差值中位 30，落 G 带（27.5–30） |
+| 7 | **H** | 差值中位 32，落 H 带（30–32.5） |
+| 8 | **I** | 差值中位 35，落 I 带（32.5–35） |
+| 9 | **J** | 差值中位 37，落 J 带（35–37） |
+
+即 `字母 = chr(65 + cup)`。上一轮脚本用 `CUP_LETTER="ABCDEFGHI"`（9 个），
+**cup≥9 的会被静默丢弃**。本版已扩到 `ABCDEFGHIJKLMNOPQ`（覆盖到 cup=16），A/B 两边都改了。
+
+顺带把上一轮 194 条简介复核了一遍：**带罩杯的 132 条 100% 一致，0 条错位**
+（早先 cup_check 报的"不一致"全部来自 metatube 那 430 条原文，口径不同，不是本轮写入的问题）。
+所以**不需要回滚**。
+
+---
+
+## 五、升级与自定义潜力（按主人要求重点保障）
+
+### 加一个新数据源 —— 只改两处
+
+```csharp
+// 1. 实现接口
+public class MyNewSource : ILocalMetaProfileSource {
+    public string Name => "MyNew";
+    public bool TryGetProfile(string name, out PersonProfile p) { ... }
+    public bool TryGetAvatarPath(string name, out string path) { ... }
+}
+// 2. 在 LocalMetaSourceFactory.Build() 里挂一行
+```
+
+A 阶段对应改 `config.json` 的 `sources` 一项 + 在 `FACTORY` 注册。
+**provider 和计划任务都不用动** —— 它们只面向接口编程。
+
+### 改输出格式 —— 不用改代码
+
+配置页填「简介模板」，占位符 `{bust} {waist} {hips} {cup} {height} {debut}`。
+A 阶段对应 `config.json` 的 `limits` / 模板逻辑。
+
+### 跟着 Jellyfin 升级
+
+| 步骤 | 做法 |
+|---|---|
+| 1 | `csproj` 里 `Jellyfin.Controller` 版本号一起升（10.11.6 → 目标版本） |
+| 2 | 重新 `dotnet publish` |
+| 3 | 重新部署 + 重启 Jellyfin |
+| 4 | 看日志有无程序集加载错误 |
+
+A 阶段无版本绑定，改完 config.json 计划任务重注册一次即可（任务始终指向同一份脚本文件）。
+
+### 配置兼容
+
+`PluginConfiguration` 新字段只增不删，旧配置升级后仍可加载，插件配置页开箱即用。
+
+---
+
+## 六、回滚
+
+```bat
+:: A 阶段：用备份覆盖回去
+copy /y "C:\Jellyfin\Data\data\jellyfin.db.bak_localmeta_20261005_133649" "C:\Jellyfin\Data\data\jellyfin.db"
+:: 头像文件在 C:\Jellyfin\Data\metadata\People 下手工删
+
+:: B 阶段：卸载插件
+powershell -ExecutionPolicy Bypass -File build.ps1 -Uninstall
+```
+
+⚠️ **Jellyfin 正在运行时改 db 会被内存缓存挡住，页面要重启才刷新。**
+
+---
+
+## 七、当前缺口与下一步
+
+守护脚本跑完一轮后剩：**76 人无图（Gfriends 没收录，多为男优）、206 人无实质简介**。
+这两类不是本地能补的 —— A 跑下去每天大概率是"补 0 条"，它的价值是**防止回退**：
+下次扫描、新入库片子进来时自动补齐，不用你记着跑脚本。
+
+性价比更高的下一步还是修上游而不是继续加本地能力：
+
+1. `/v1/actresses?keyword=` 返回 404（正确路径 `/v1/actors/search?q=`）—— 修这个
+2. 打开人物元数据下载器 —— 一次性把那 205 人刮回来
+
+这两件做完，本库基本就满图满简介了，B 插件那时候的价值就只剩"跟生命周期绑定"。
