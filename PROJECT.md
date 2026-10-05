@@ -16,8 +16,8 @@ Jellyfin 人物资料（头像 / 简介）的**本地兜底**方案。跟 MetaTu
 | Jellyfin 10.11.6 | A 阶段已上线运行；B 阶段编译通过 + 加载验证通过 |
 | Jellyfin 12.1.0 | **已适配**：A 脚本 schema 兼容已修复并 dry-run 验证；B 插件实测加载成功（未改代码） |
 | 代码托管 | `git@github.com:luckwalter/LocalMeta.git`（main） |
-| B 阶段数据源 | **待配置**：插件配置页填两个路径后重启 |
-| B 阶段补数据效果 | **未验证**：需在后台刷新人物元数据后看日志有无 `[LocalMeta]` 输出 |
+| B 阶段数据源 | **已配置**：`C:\Jellyfin\Data\LocalMeta-Sources`，日志确认「载入资料源 2 个」 |
+| B 阶段补数据效果 | **未验证**：需在后台刷新人物元数据，或跑一次「LocalMeta 人物资料补齐」计划任务 |
 
 ---
 
@@ -69,11 +69,30 @@ LocalMeta/
 
 ### 待办（按优先级）
 
-1. **配置 B 阶段数据源** —— 插件配置页填 Gfriends 头像目录 + JavBoss 数据库路径，重启
-2. **验证 B 阶段实际效果** —— 后台刷新人物元数据，看日志 `[LocalMeta]` 输出
-3. **填 A 阶段真实数据源路径** —— `a-script/config.json` 里 `sources` 现在是占位值
-   （`D:\data\gfriends` / `D:\data\javboss.db`），填真实路径后跑一次非 dry-run
-4. 可选：B 插件重定 `net10.0`（不重定也能跑，见 10 号文档）
+1. **验证 B 阶段实际写入** —— 后台 → 计划任务 → 跑一次「LocalMeta 人物资料补齐」，
+   或对某个演员刷新元数据，看日志 `[LocalMeta] 补简介/补头像`。
+   数据源已就绪，实测 Pron 库缺口里头像能再补 4 人、简介能再补 2 人
+   （增量小是正常的：A 阶段已经用同一份源补过一轮，剩下的是源里本来就没有的人）
+2. 可选：B 插件重定 `net10.0`（不重定也能跑，见 10 号文档）
+
+### 数据源位置
+
+A 阶段与 B 阶段**共用同一份数据源**，别各指一份，否则两边行为会分叉：
+
+```
+C:\Jellyfin\Data\LocalMeta-Sources\
+├─ javboss.db            JavBoss 资料库（jav_idol，1456 条）
+├─ gfriends_plan.json    名字 -> 头像编号 索引（1276 条）
+└─ avatars/              头像实体文件（1346 个，jpg + webp）
+```
+
+配置位置：
+- B 阶段：`C:\Jellyfin\Data\plugins\configurations\Jellyfin.Plugin.LocalMeta.xml`
+  的 `ProfileDbPath` / `AvatarSourceDir`（也可在后台配置页改）
+- A 阶段：`a-script/config.json` 的 `sources`
+
+这份数据是从 NAS 的 JavBoss 容器拉下来的
+（`/share/CACHEDEV1_DATA/Container/javboss/data`），源更新时重新拉一次覆盖即可。
 
 ### 改代码时的规矩
 

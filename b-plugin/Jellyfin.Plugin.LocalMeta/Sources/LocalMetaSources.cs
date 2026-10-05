@@ -183,10 +183,19 @@ namespace Jellyfin.Plugin.LocalMeta.Sources
                 return null;
             }
 
-            var cupIdx = SafeInt(reader["cup"]);
-            var cup = cupIdx >= 0 && cupIdx < _cupLetters.Length
-                ? _cupLetters[cupIdx].ToString()
-                : string.Empty;
+            // cup 为 NULL 时必须留空，不能按索引 0 映射成 A。
+            // 数据源实测 1456 条里有 1078 条 cup 为空，按 0 处理会把这些人错写成 A 罩杯。
+            // A 阶段 localmeta.py 的 _cup_letter 对空值返回空串，两边行为必须一致。
+            var cup = string.Empty;
+            var cupRaw = reader["cup"];
+            if (cupRaw != null && cupRaw != DBNull.Value)
+            {
+                var cupIdx = SafeInt(cupRaw);
+                if (cupIdx >= 0 && cupIdx < _cupLetters.Length)
+                {
+                    cup = _cupLetters[cupIdx].ToString();
+                }
+            }
 
             var debut = string.Empty;
             var m = Regex.Match(reader["birth_date"]?.ToString() ?? string.Empty, @"(\d{4})-(\d{1,2})-(\d{1,2})");
@@ -232,17 +241,33 @@ namespace Jellyfin.Plugin.LocalMeta.Sources
                 return;
             }
 
-            foreach (var item in Newtonsoft.Json.JsonConvert.DeserializeObject<System.Collections.IEnumerable>(
-                File.ReadAllText(plan)) ?? new List<object>())
+            // plan 是 [[编号, 名字, 标签, 文件名], ...] 的二维数组。
+            // 不能用 DeserializeObject<IEnumerable> —— Newtonsoft 无法实例化接口类型，
+            // 会抛 JsonSerializationException，进而让整个 provider 创建失败。
+            // 解析失败时只丢这一个源，不往上抛，避免拖垮插件。
+            Newtonsoft.Json.Linq.JArray rows;
+            try
             {
-                var arr = item as System.Collections.IList;
-                if (arr == null || arr.Count < 2)
+                rows = Newtonsoft.Json.Linq.JArray.Parse(File.ReadAllText(plan));
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
+            foreach (var item in rows)
+            {
+                if (item is not Newtonsoft.Json.Linq.JArray arr || arr.Count < 2)
                 {
                     continue;
                 }
 
                 var gid = arr[0]?.ToString() ?? string.Empty;
                 var nm = arr[1]?.ToString() ?? string.Empty;
+                if (string.IsNullOrEmpty(gid) || string.IsNullOrEmpty(nm))
+                {
+                    continue;
+                }
                 if (!_byName.ContainsKey(nm))
                 {
                     _byName[nm] = gid;
@@ -295,11 +320,14 @@ namespace Jellyfin.Plugin.LocalMeta.Sources
         {
             var list = new List<ILocalMetaProfileSource>();
 
+            // 头像根目录：优先认为 AvatarSourceDir 就是 Gfriends 导出目录
+            // （其下直接有 gfriends_plan.json + avatars/），找不到再看下一级 gf/ 子目录
+            // （旧布局，兼容既有部署）。
             var avDir = string.IsNullOrWhiteSpace(config.AvatarSourceDir)
                 ? appDir
                 : config.AvatarSourceDir;
-            var avatars = Path.Combine(avDir ?? string.Empty, "gf");
-            if (Directory.Exists(avatars))
+            var avatars = ResolveAvatarRoot(avDir);
+            if (!string.IsNullOrEmpty(avatars))
             {
                 list.Add(new GfriendsAvatarSource(avatars));
             }
@@ -316,6 +344,27 @@ namespace Jellyfin.Plugin.LocalMeta.Sources
             }
 
             return list;
+        }
+
+        /// <summary>
+        /// 定位 Gfriends 头像根目录。支持两种布局：
+        /// 目录本身含 gfriends_plan.json，或下一级 gf/ 子目录含它。
+        /// 找不到返回空串（调用方跳过该源）。
+        /// </summary>
+        private static string ResolveAvatarRoot(string dir)
+        {
+            if (string.IsNullOrEmpty(dir))
+            {
+                return string.Empty;
+            }
+
+            if (File.Exists(Path.Combine(dir, "gfriends_plan.json")))
+            {
+                return dir;
+            }
+
+            var sub = Path.Combine(dir, "gf");
+            return File.Exists(Path.Combine(sub, "gfriends_plan.json")) ? sub : string.Empty;
         }
 
         private static string FindJavBossDb(string appDir)

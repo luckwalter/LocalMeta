@@ -34,8 +34,8 @@
       "name": "gfriends",
       "kind": "avatar_folder",
       "enabled": true,
-      "_pathHint": "改成你自己的 Gfriends 导出目录，其下需有 avatars/ 子目录",
-      "path": "D:\\data\\gfriends",
+      "_pathHint": "Gfriends 导出目录，其下需有 avatars/ 子目录与 gfriends_plan.json。与 B 阶段插件共用同一份数据源",
+      "path": "C:\\Jellyfin\\Data\\LocalMeta-Sources",
       "dirs": { "avatars": "avatars", "plan": "gfriends_plan.json" },
       "extensions": [".jpg", ".webp"],
       "priority": 10
@@ -44,8 +44,8 @@
       "name": "javboss",
       "kind": "profile_sqlite",
       "enabled": true,
-      "_pathHint": "改成你自己的 JavBoss 数据库路径",
-      "path": "D:\\data\\javboss.db",
+      "_pathHint": "改成你自己的 JavBoss 数据库路径。与 B 阶段插件共用同一份数据源",
+      "path": "C:\\Jellyfin\\Data\\LocalMeta-Sources\\javboss.db",
       "table": "jav_idol",
       "priority": 10
     }

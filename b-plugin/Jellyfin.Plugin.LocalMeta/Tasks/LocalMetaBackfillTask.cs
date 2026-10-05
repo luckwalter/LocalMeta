@@ -67,7 +67,9 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
                 return;
             }
 
-            var db = Path.Combine(_appPaths.DataPath, "data", "jellyfin.db");
+            // appPaths.DataPath 本身就是 .../Data/data，jellyfin.db 就在它下面。
+            // 以前这里又拼了一层 "data"，结果是 .../Data/data/data/jellyfin.db，找不到库。
+            var db = Path.Combine(_appPaths.DataPath, "jellyfin.db");
             if (!File.Exists(db))
             {
                 _logger.LogWarning("[LocalMeta] 找不到数据库: {Db}", db);
@@ -277,12 +279,25 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
         }
 
         // ------------------------------------------------- 落盘 / 写库
+        /// <summary>
+        /// 元数据根目录（其下有 People/）。DataPath 是 .../Data/data，
+        /// 所以这里取它的上一级 .../Data。
+        /// </summary>
+        private string MetadataRoot()
+        {
+            var parent = Directory.GetParent(_appPaths.DataPath.TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            var root = parent?.FullName ?? _appPaths.DataPath;
+            return Path.Combine(root, "metadata");
+        }
+
         private string CopyAvatar(string name, string src)
         {
             try
             {
                 var relDir = Path.Combine(name.Substring(0, 1), name);
-                var dir = Path.Combine(_appPaths.DataPath, "metadata", "People", relDir);
+                // metadata/ 在数据根目录（DataPath 的上一级），不在 DataPath 下面
+                var dir = Path.Combine(MetadataRoot(), "People", relDir);
                 Directory.CreateDirectory(dir);
                 var ext = Path.GetExtension(src);
                 var dest = Path.Combine(dir, "folder" + ext);
