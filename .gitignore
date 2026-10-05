@@ -53,3 +53,8 @@ b-plugin/final_verify.txt
 # 部署辅助输出
 b-plugin/copy_std*.txt
 b-plugin/copy_stderr.txt
+
+# ---- 头像体检产物（跑一次就生成，且含库内全量数据，不入库）----
+tools/avatarscan/*.csv
+tools/avatarscan/*_names.txt
+tools/avatarscan/repair_ids.txt

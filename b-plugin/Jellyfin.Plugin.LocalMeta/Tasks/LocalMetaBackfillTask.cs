@@ -86,6 +86,7 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
             var done = 0;
             var filledImg = 0;
             var filledBio = 0;
+            var skippedSmall = 0;
 
             // 先只做文件 + 内存判断，最后一次性写库，减少 sqlite 争用
             var imageWrites = new List<(string ItemId, string Path, int W, int H)>();
@@ -108,6 +109,15 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
                     {
                         if (src.TryGetAvatarPath(name, out var path) && File.Exists(path))
                         {
+                            // 分辨率门槛：Gfriends 导出里混着一批 125x125 的 DMM 缩略图，
+                            // 无门槛写进去就是把 MetaTube 的高清头像换成小图。
+                            // 顺带挡掉 0 字节的坏文件（源里 webp 全是 0 字节）。
+                            if (!AvatarGate.IsUsable(path, cfg.MinAvatarWidth, out _))
+                            {
+                                skippedSmall++;
+                                break;
+                            }
+
                             var dest = CopyAvatar(name, path);
                             if (!string.IsNullOrEmpty(dest))
                             {
@@ -156,7 +166,8 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
 
             WriteBack(db, imageWrites, bioUpdates, cfg);
 
-            _logger.LogInformation("[LocalMeta] 任务完成：补图 {Img} / 补简介 {Bio}", filledImg, filledBio);
+            _logger.LogInformation("[LocalMeta] 任务完成：补图 {Img} / 补简介 {Bio} / 源图过小跳过 {Skip}",
+                filledImg, filledBio, skippedSmall);
             await Task.CompletedTask.ConfigureAwait(false);
         }
 
@@ -259,10 +270,25 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
 
                 var t = new Target { PeopleId = pid, PersonId = personId, Name = name };
 
-                cmd.CommandText = "SELECT COUNT(*) FROM BaseItemImageInfos WHERE ItemId=$i AND ImageType=0";
+                // 12.1.0 起 Person 实体 Id 与 Peoples.Id 脱钩，头像记录实际挂在
+                // Person 实体的 BaseItems.Id 上。实测：挂 BaseItems.Id 的 2460 人，
+                // 挂 Peoples.Id 的只有 678 个（其中 673 个还是本插件自己写进去的）。
+                // 只按 Peoples.Id 查，会把"MetaTube 已刮到高清头像"误判成缺图，
+                // 于是 OverwriteExisting=false 也照样覆盖 —— 低分头像就是这么来的。
+                var imgIds = new[] { pid, personId }
+                    .Where(x => !string.IsNullOrEmpty(x)).Distinct().ToList();
+                var ph = string.Join(",", imgIds.Select((_, k) => "$i" + k));
+                cmd.CommandText =
+                    "SELECT COUNT(*) FROM BaseItemImageInfos WHERE ImageType=0 AND ItemId IN (" + ph + ")";
                 cmd.Parameters.Clear();
-                cmd.Parameters.AddWithValue("$i", pid);
-                t.HasImage = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                for (var k = 0; k < imgIds.Count; k++)
+                {
+                    cmd.Parameters.AddWithValue("$i" + k, imgIds[k]);
+                }
+
+                // 库记录可能和磁盘不同步（手工删过图、迁移过目录），
+                // 界面最终显示的是物理文件，所以再用文件兜一次底。
+                t.HasImage = Convert.ToInt32(cmd.ExecuteScalar()) > 0 || HasAvatarFile(name);
 
                 if (!string.IsNullOrEmpty(personId))
                 {
@@ -277,6 +303,34 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
             }
 
             return targets;
+        }
+
+        /// <summary>
+        /// 物理头像文件是否存在（非空）。
+        /// 目录结构 metadata/People/&lt;首字母&gt;/&lt;姓名&gt;/folder.*，与 CopyAvatar 保持一致。
+        /// </summary>
+        private bool HasAvatarFile(string name)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(name))
+                {
+                    return false;
+                }
+
+                var dir = Path.Combine(MetadataRoot(), "People", name.Substring(0, 1), name);
+                if (!Directory.Exists(dir))
+                {
+                    return false;
+                }
+
+                return Directory.EnumerateFiles(dir, "folder.*")
+                    .Any(f => new FileInfo(f).Length > 0);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         // ------------------------------------------------- 落盘 / 写库
@@ -314,42 +368,9 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
 
         private static (int, int) ImageSize(string path)
         {
-            try
-            {
-                using var fs = File.OpenRead(path);
-                var head = new byte[64];
-                var n = fs.Read(head, 0, head.Length);
-                if (n > 0 && head[0] == 0xFF && head[1] == 0xD8)
-                {
-                    for (var i = 2; i + 8 < n; i++)
-                    {
-                        if (head[i] != 0xFF)
-                        {
-                            continue;
-                        }
-
-                        var m = head[i + 1];
-                        if (m == 0xC0 || m == 0xC1 || m == 0xC2 || m == 0xC3)
-                        {
-                            return (head[i + 7] << 8 | head[i + 6], head[i + 5] << 8 | head[i + 4]);
-                        }
-
-                        if (m == 0xD8 || m == 0xD9 || (m >= 0xD0 && m <= 0xD7))
-                        {
-                            i++;
-                            continue;
-                        }
-
-                        i += 2 + (head[i + 2] << 8 | head[i + 3]);
-                    }
-                }
-            }
-            catch
-            {
-                // 读不到就按 0 处理，不影响补图
-            }
-
-            return (0, 0);
+            // 实现统一放在 AvatarGate（JPEG/PNG/WebP 文件头解析），这里只转发，
+            // 免得两处解析逻辑各写一遍、将来改一处漏一处。
+            return AvatarGate.ImageSize(path);
         }
 
         /// <summary>

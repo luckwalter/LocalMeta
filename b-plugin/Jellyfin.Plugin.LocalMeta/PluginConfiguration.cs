@@ -98,6 +98,17 @@ namespace Jellyfin.Plugin.LocalMeta
         public string NameSubstitutes { get; set; } = string.Empty;
 
         /// <summary>
+        /// 本地头像源的"最小可用尺寸"门槛（像素），按图片短边判定。
+        ///
+        /// 实测依据：Gfriends 导出里 673 张 jpg 有 114 张是 1XX（多为 125x125 的 DMM 缩略图），
+        /// 无门槛直接写就会把 MetaTube 刮到的高清头像盖掉。
+        /// 源图短边小于此值时跳过不写，宁可留着远程刮削的高清图。
+        /// 按短边判定是为了不误杀 400x600 这类竖版高清图。
+        /// 设 0 表示不设门槛（恢复旧行为）。
+        /// </summary>
+        public int MinAvatarWidth { get; set; } = 300;
+
+        /// <summary>
         /// 是否参与图片提供（关闭后只补文字资料）。
         /// </summary>
         public bool ProvideImages { get; set; } = true;

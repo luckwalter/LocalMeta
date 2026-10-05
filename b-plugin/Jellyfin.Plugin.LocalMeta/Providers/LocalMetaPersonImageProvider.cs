@@ -85,19 +85,31 @@ namespace Jellyfin.Plugin.LocalMeta.Providers
             var name = NameNormalizer.ApplySubstitutes(item.Name ?? string.Empty, cfg.NameSubstitutes);
             foreach (var src in _sources)
             {
-                if (src.TryGetAvatarPath(name, out var path) && File.Exists(path))
+                if (!src.TryGetAvatarPath(name, out var path))
                 {
-                    _logger.LogInformation("[LocalMeta] 提供头像: {Name} <- {Source}", name, src.Name);
-                    return new[]
-                    {
-                        new RemoteImageInfo
-                        {
-                            Url = path,
-                            ProviderName = src.Name,
-                            Type = ImageType.Primary
-                        }
-                    };
+                    continue;
                 }
+
+                // 与计划任务同一套门槛：源图太小或 0 字节就不提供给 Jellyfin，
+                // 否则刷新元数据时同样会把高清头像换成小图。
+                if (!AvatarGate.IsUsable(path, cfg.MinAvatarWidth, out var sz))
+                {
+                    _logger.LogInformation(
+                        "[LocalMeta] 头像被门槛跳过: {Name} {W}x{H} (门槛 {Min})",
+                        name, sz.W, sz.H, cfg.MinAvatarWidth);
+                    continue;
+                }
+
+                _logger.LogInformation("[LocalMeta] 提供头像: {Name} <- {Source}", name, src.Name);
+                return new[]
+                {
+                    new RemoteImageInfo
+                    {
+                        Url = path,
+                        ProviderName = src.Name,
+                        Type = ImageType.Primary
+                    }
+                };
             }
 
             return Array.Empty<RemoteImageInfo>();

@@ -298,7 +298,10 @@ namespace Jellyfin.Plugin.LocalMeta.Sources
             foreach (var ext in new[] { ".jpg", ".webp" })
             {
                 var p = Path.Combine(_root, "avatars", gid + ext);
-                if (File.Exists(p))
+
+                // 不能用 File.Exists 就完事：导出目录里存在大量 0 字节文件
+                // （实测 673 个 webp 全是 0 字节，还有 7 个 jpg），当成有效头像复制进库就是坏图。
+                if (IsNonEmpty(p))
                 {
                     path = p;
                     return true;
@@ -306,6 +309,19 @@ namespace Jellyfin.Plugin.LocalMeta.Sources
             }
 
             return false;
+        }
+
+        private static bool IsNonEmpty(string p)
+        {
+            try
+            {
+                var fi = new FileInfo(p);
+                return fi.Exists && fi.Length > 0;
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 

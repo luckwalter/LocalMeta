@@ -36,6 +36,13 @@
           <div class="fieldDescription">按时间轮转，只保留最近 N 份 jellyfin.db 备份。
             实测每份约 47MB，不做轮转的话每天一份一年就是 17GB。</div>
         </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused">头像最小尺寸（像素）</label>
+          <input is="emby-input" type="number" id="minAvatarWidth" class="emby-input"
+                 min="0" max="2000" data-default="300" />
+          <div class="fieldDescription">本地源头像短边小于此值就不写入，保留 MetaTube 刮到的高清图。
+            实测 Gfriends 导出里有 114 张 125x125 的缩略图，无门槛会把高清头像盖掉。设 0 表示不设门槛。</div>
+        </div>
       </div>
 
       <div class="verticalSection">
@@ -105,7 +112,7 @@
 
       var cfg = {};
       var fields = ['enablePlugin', 'libraryNames', 'overwriteExisting', 'maxItemsPerRun',
-        'backupBeforeWrite', 'backupMax', 'profileDbPath', 'avatarSourceDir', 'nameSubstitutes',
+        'backupBeforeWrite', 'backupMax', 'minAvatarWidth', 'profileDbPath', 'avatarSourceDir', 'nameSubstitutes',
         'overviewTemplate', 'cupLetters', 'heightMin', 'heightMax', 'girthMin', 'girthMax',
         'provideImages', 'provideMetadata'];
 
