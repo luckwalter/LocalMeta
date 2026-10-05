@@ -3,7 +3,8 @@
 Jellyfin 人物资料（头像 / 简介）的**本地兜底**方案。跟 MetaTube 这类远程刮削器互补：
 排在它们之后，只在字段为空时才补，**永不覆盖**远程刮到的内容。
 
-针对 Jellyfin **10.11.6** 开发与验证。
+针对 Jellyfin **10.11.6** 开发，已在 **12.1.0** 上完成升级验证与适配（数据目录、数据库
+schema、插件加载三项均实测通过，见 [docs/Jellyfin-12.1.0-升级适配说明.md](docs/Jellyfin-12.1.0-升级适配说明.md)）。
 
 ## 为什么要这个
 
@@ -155,16 +156,31 @@ dotnet bin\Release\net9.0\apiprobe.dll "C:\Jellyfin" NS:MediaBrowser.Controller.
 
 | | 要求 |
 |---|---|
-| Jellyfin | 10.11.x（接口在 10.9↔10.11 有破坏性变动，其他版本需重新取证） |
-| A 阶段 | Python 3.9+ |
-| B 阶段 | .NET 9 SDK |
+| Jellyfin | **10.11.x 或 12.1.x**；其他版本需先跑 `tools/apiprobe` 取证，见下 |
+| A 阶段 | Python 3.9+（仅标准库即可跑，联网源才需要 `requests`） |
+| B 阶段 | .NET 9 SDK（12.1.0 实测可加载 net9.0 插件，不强求重定 net10.0） |
+
+### Jellyfin 12.1.0 用户必读
+
+12.1.0 改了三处数据库 schema，其中一条会让**未升级的 A 阶段脚本误判全员缺图**：
+
+| # | 变更 | 10.11 | 12.1.0 |
+|---|---|---|---|
+| 1 | `BaseItems.Type` 值 | `Person` / `Movie` | `MediaBrowser.Controller.Entities.Person` |
+| 2 | Person 条目 Id 与 `Peoples.Id` | 同一个 GUID | **两个不同 GUID** |
+| 3 | `PeopleBaseItemMap.PeopleId` 指向 | 两者皆可 | `Peoples.Id` |
+
+本仓库脚本已适配：`Type` 写法自动探测，头像判定优先用 Person 条目 Id。
+升级 Jellyfin 后直接跑 `--dry-run` 即可，无需改配置。详细见
+[docs/Jellyfin-12.1.0-升级适配说明.md](docs/Jellyfin-12.1.0-升级适配说明.md)。
 
 ## 状态
 
 | | 状态 |
 |---|---|
-| A 阶段 | 已上线运行，计划任务已注册验证 |
-| B 阶段 | **已部署到本地 Jellyfin 10.11.6，插件加载成功（`status: Active`）** |
+| A 阶段 | 已上线运行，计划任务已注册验证；12.1.0 schema 变更已适配并 dry-run 验证 |
+| B 阶段 | **已部署到本地 Jellyfin，插件加载成功（`status: Active`）** |
+| B 阶段 12.1.0 | **实测加载成功**（net9.0 插件在 net10.0 宿主下正常工作） |
 | B 阶段数据源 | 待配置：配置页填两个路径后重启，才会出现「载入资料源 N 个」 |
 | B 阶段补数据效果 | **未验证** —— 需在后台刷新人物元数据后看日志有无 `[LocalMeta]` 输出 |
 

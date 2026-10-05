@@ -8,7 +8,7 @@
   "metadataDir": "C:\\Jellyfin\\Data\\metadata\\People",
 
   "personType": "MediaBrowser.Controller.Entities.Person",
-  "_personTypeHint": "Person 实体在 BaseItems.Type 里的全名",
+  "_personTypeHint": "Person 实体在 BaseItems.Type 里的写法。12.1.0 起是全类名，10.11 是短名 Person；脚本会按此值优先、查不到自动回退，填错也能跑",
 
   "overwriteExisting": false,
   "_overwriteExistingHint": "false=只补空字段（默认，安全）；true=源里有的都覆盖一次",

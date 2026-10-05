@@ -6,9 +6,16 @@ Jellyfin 人物资料的**本地兜底 provider**。跟 MetaTube 这类远程刮
 与 A 阶段的 `localmeta/localmeta.py` 是**两条互为备份的同一套逻辑**，
 数据源、罩杯映射、姓名归一化规则两边保持一致，不会分叉。
 
-**状态：已在 Jellyfin 10.11.6 上编译通过 + 加载验证通过（2026-10-05）。**
-验证方式不是"看着像对"，而是用 `dotnet-setup/loadtest` 反射加载产物，
+**状态：**
+- Jellyfin **10.11.6**：编译通过 + 加载验证通过（2026-10-05）
+- Jellyfin **12.1.0**：**实测加载通过**（`Loaded plugin: "LocalMeta" "0.3.0.0"`），
+  代码未做任何改动。net9.0 插件在 net10.0 宿主下正常工作，**不强求重定 net10.0**
+
+10.11.6 的验证方式不是"看着像对"，而是用 `dotnet-setup/loadtest` 反射加载产物，
 逐条确认 Jellyfin 能识别出三个 provider 实现。输出见文末「验证记录」。
+
+12.1.0 的适配结论与数据库 schema 变更见
+[`../docs/Jellyfin-12.1.0-升级适配说明.md`](../docs/Jellyfin-12.1.0-升级适配说明.md)。
 
 ## 目录
 

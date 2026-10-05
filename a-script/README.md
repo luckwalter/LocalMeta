@@ -10,6 +10,22 @@ Jellyfin 人物资料的**本地兜底补齐**。每天自动扫一次缺口，�
    已有 Overview 的，全部跳过，绝不冲掉 metatube 刮的内容。
 3. **配置驱动** —— 加数据源、换库名、调归一化规则，改 `config.json` 就行，不用动 `localmeta.py`。
 
+## Jellyfin 版本兼容
+
+在 **10.11.6** 上开发，已在 **12.1.0** 上验证并适配。
+
+12.1.0 改了数据库 schema（Person 条目 Id 与 `Peoples.Id` 脱钩），
+未适配的脚本会**误判全员缺图**并重复回填。本脚本已处理：
+`BaseItems.Type` 写法自动探测，头像判定优先用 Person 条目 Id。
+
+升级 Jellyfin 后不用改配置，先空跑一次核对数字即可：
+
+```bat
+python localmeta.py --dry-run
+```
+
+详见 [`../docs/Jellyfin-12.1.0-升级适配说明.md`](../docs/Jellyfin-12.1.0-升级适配说明.md)。
+
 ## 文件
 
 | 文件 | 作用 |

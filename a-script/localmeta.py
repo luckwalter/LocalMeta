@@ -279,6 +279,28 @@ def image_size(path):
     return 0, 0
 
 
+def detect_person_type(con, cfg):
+    """探测 BaseItems.Type 里 Person 实体的实际写法。
+
+    Jellyfin 12.1.0 起 Type 从短名 Person 改成完整类名
+    MediaBrowser.Controller.Entities.Person；10.11 及更早是短名。
+    以配置为首选，查不到就依次退回，两个版本都能跑。
+    """
+    cands = [cfg.get("personType") or "Person", "Person",
+             "MediaBrowser.Controller.Entities.Person"]
+    tried = []
+    for t in cands:
+        if not t or t in tried:
+            continue
+        tried.append(t)
+        if con.execute("SELECT 1 FROM BaseItems WHERE Type=? LIMIT 1", (t,)).fetchone():
+            if t != cands[0]:
+                log("  Type 写法回退：%s -> %s（数据库与配置不一致，已自动适配）"
+                    % (cands[0], t))
+            return t
+    return cands[0]
+
+
 # ---------------------------------------------------------------- 扫描
 def scan(cfg):
     """只读扫描：返回本库演员清单（peoples_id / name / person_id / 现有图 / 现有简介）"""
@@ -288,6 +310,8 @@ def scan(cfg):
     con = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
     libs = [x.strip() for x in cfg["library"].split(",") if x.strip()]
     q = lambda s, *a: con.execute(s, a).fetchall()
+
+    person_type = detect_person_type(con, cfg)
 
     film_ids = []
     for lib in libs:
@@ -310,15 +334,21 @@ def scan(cfg):
 
     person = {}
     for pid, nm in per.items():
-        got = q("SELECT Id FROM BaseItems WHERE Type=? AND Name=?", cfg["personType"], nm)
+        got = q("SELECT Id FROM BaseItems WHERE Type=? AND Name=?", person_type, nm)
         person[pid] = got[0][0] if got else ""
 
+    # 12.1.0 起 Person 条目的 BaseItems.Id 与 Peoples.Id 脱钩成两个 GUID，
+    # 头像记录挂在 BaseItems.Id（Person 条目）上；10.11 两者是同一个值。
+    # 因此先查 person_id，查不到再退回 peoples_id，两个版本都不会误判。
     have_img = set()
-    for pid in per:
-        for (n,) in q("SELECT COUNT(*) FROM BaseItemImageInfos WHERE ItemId=? AND ImageType=?",
-                      pid, IMG_TYPE_PRIMARY):
-            if n:
+    for pid, iid in person.items():
+        for cand in (iid, pid):
+            if not cand:
+                continue
+            if q("SELECT COUNT(*) FROM BaseItemImageInfos WHERE ItemId=? AND ImageType=?",
+                 cand, IMG_TYPE_PRIMARY)[0][0]:
                 have_img.add(pid)
+                break
 
     have_bio = set()
     for pid, iid in person.items():
@@ -393,7 +423,10 @@ def run(cfg, only="all", dry=False):
         files_ok += 1
         avatar_log.append({"name": name, "src": src, "dst": dst, "w": w, "h": h})
         if overwrite or not r["has_img"]:
-            for iid in (r["peoples_id"], r["person_id"]):
+            # 头像要挂在 Person 条目（BaseItems.Id）上；只有在该演员根本没有
+            # Person 条目时才退回 Peoples.Id。10.11 下两者同值，写一条即可，
+            # 不会像旧版那样产生两条重复记录。
+            for iid in ([r["person_id"]] if r["person_id"] else [r["peoples_id"]]):
                 if iid:
                     rows_img.append((str(uuid.uuid4()).upper(), iid, IMG_TYPE_PRIMARY,
                                      datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.0000000Z"),
