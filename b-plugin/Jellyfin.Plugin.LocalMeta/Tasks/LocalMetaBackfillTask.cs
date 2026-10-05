@@ -17,8 +17,7 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
 {
     /// <summary>
     /// 每日兜底任务：扫缺口 → 补头像文件 + 补简介 → 直写 jellyfin.db。
-    /// 逻辑与 A 阶段 localmeta.py 保持一致，两条路互为备份，行为不会分叉。
-    /// 只在字段为空时写，重复执行结果不变。
+    /// 与 provider 路径共用同一套判定逻辑，只在字段为空时写，重复执行结果不变。
     /// </summary>
     public class LocalMetaBackfillTask : IScheduledTask
     {

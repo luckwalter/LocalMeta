@@ -1,11 +1,13 @@
 # LocalMeta 项目总览
 
 > 维护入口。产品说明看 [`README.md`](README.md)，
-> 部署/编译细则看 [`b-plugin/README.md`](b-plugin/README.md)，
-> 脚本用法看 [`a-script/README.md`](a-script/README.md)。
+> 部署/编译细则看 [`b-plugin/README.md`](b-plugin/README.md)。
 
 Jellyfin 人物资料（头像 / 简介）的**本地兜底**方案。跟 MetaTube 这类远程刮削器互补：
 排在它们之后，只在字段为空时才补，**永不覆盖**远程刮到的内容。
+
+> **2026-10-06 起单轨**：早期曾有一套 Python 守护脚本与插件并行，现已整仓移除，
+> 只保留插件。远程 git 历史里还能翻到（`git log --diff-filter=D -- 'a-script/*'`）。
 
 ---
 
@@ -13,33 +15,24 @@ Jellyfin 人物资料（头像 / 简介）的**本地兜底**方案。跟 MetaTu
 
 | 项 | 状态 |
 |---|---|
-| Jellyfin 10.11.6 | A 阶段已上线运行；B 阶段编译通过 + 加载验证通过 |
-| Jellyfin 12.1.0 | **已适配**：A 脚本 schema 兼容已修复并 dry-run 验证；B 插件已重定 `net10.0` + 引用升到 `Jellyfin.Controller 12.1.0`，重新编译并部署，日志确认加载成功 |
+| Jellyfin 10.11.6 | 编译通过 + 加载验证通过 |
+| Jellyfin 12.1.0 | **已适配**：插件已重定 `net10.0` + 引用升到 `Jellyfin.Controller 12.1.0`，重新编译并部署，日志确认加载成功 |
 | 代码托管 | `git@github.com:luckwalter/LocalMeta.git`（main） |
-| B 阶段数据源 | **已配置**：`C:\Jellyfin\Data\LocalMeta-Sources`，日志确认「载入资料源 2 个」 |
-| B 阶段补数据效果 | **未验证**：需在后台刷新人物元数据，或跑一次「LocalMeta 人物资料补齐」计划任务 |
+| 数据源 | **已配置**：`C:\Jellyfin\Data\LocalMeta-Sources`，日志确认「载入资料源 2 个」 |
+| 补数据效果 | **未验证**：需在后台刷新人物元数据，或跑一次「LocalMeta 人物资料补齐」计划任务 |
 
 ---
 
-## 两条路，分工不同
+## 工作方式
 
-```
-b-plugin/   Jellyfin 插件（C#，net10.0）       ← 常态化补齐，主力
-            ILocalMetadataProvider<Person> + IRemoteImageProvider：
-            人物页刷新 / 新演员入库时当场兜底，不用等定时任务。
-            外加 IScheduledTask 每天全量扫一次补漏。
-a-script/   Python 诊断 + 应急工具             ← 不参与自动化
-            B 做不到、又必须有的两件事：
-            1. --dry-run 预演：升级 Jellyfin 后验证判定逻辑还没被打挂
-            2. 应急通道：插件挂了/配置改坏时手工兜底
-```
+插件挂两条触发路径，共用同一套判定逻辑：
 
-**为什么不让两条路并行跑**：并行就得长期维持两套逻辑同步，收益却几乎为零——
-B 的实时兜底能力 A 从结构上做不到，A 的 dry-run 能力 B 也没有，
-两者重叠的部分（定时全量补）留 B 一份就够。
+| 路径 | 触发时机 | 作用 |
+|---|---|---|
+| `ILocalMetadataProvider<Person>` + `IRemoteImageProvider` | 人物页刷新、元数据重刮、新演员入库 | **当场兜底**，不用等定时任务 |
+| `IScheduledTask`（默认每 24 小时） | 定时全量扫描 | 补漏 |
 
-A 阶段**默认不注册计划任务**（实测本机也确实从未注册过），
-退出自动化的同时也省掉了外部进程在 Jellyfin 运行时直写库的撞锁风险。
+provider 路径是插件独有的价值——外部脚本无论怎么定时都做不到"入库即兜底"。
 
 ---
 
@@ -49,12 +42,7 @@ A 阶段**默认不注册计划任务**（实测本机也确实从未注册过�
 LocalMeta/
 ├─ PROJECT.md              本文件：项目维护入口
 ├─ README.md               产品说明（定位、设计、数据源、环境要求）
-├─ a-script/               A 阶段：诊断 + 应急脚本（Python，不定时运行）
-│  ├─ localmeta.py         主程序，配置驱动、幂等、只补空、支持 --dry-run
-│  ├─ config.json          全部配置项
-│  ├─ install_task.ps1     注册 / 卸载 Windows 计划任务（默认不注册）
-│  └─ README.md            详细说明
-├─ b-plugin/               B 阶段：Jellyfin 插件（C#）
+├─ b-plugin/               插件（C#，net10.0）
 │  ├─ Jellyfin.Plugin.LocalMeta/
 │  ├─ build.ps1            编译 + 部署 / 卸载
 │  ├─ deploy.ps1           部署（含产物安全校验）
@@ -65,7 +53,7 @@ LocalMeta/
 ├─ docs/
 │  ├─ 10-升级适配-Jellyfin-12.1.0.md      12.1.0 适配说明（schema 变更、数据目录坑）
 │  ├─ 11-兼容性检查报告-12.1.0.md          升级后的检查过程与证据
-│  ├─ 20-插件方案-实施版.md                 A+B 实施方案
+│  ├─ 20-插件方案-实施版.md                 实施方案与取舍记录
 │  ├─ 30-演员资料体检与修复报告.md          数据来源与缺口分析
 │  └─ 40-协作-GitHub推送与上传.md          SSH 推送配置与常见故障
 └─ .workbuddy/memory/      项目记忆（长期约定 + 开发日志）
@@ -77,17 +65,15 @@ LocalMeta/
 
 ### 待办（按优先级）
 
-1. **验证 B 阶段实际写入** —— 后台 → 计划任务 → 跑一次「LocalMeta 人物资料补齐」，
+1. **验证实际写入** —— 后台 → 计划任务 → 跑一次「LocalMeta 人物资料补齐」，
    或对某个演员刷新元数据，看日志 `[LocalMeta] 补简介/补头像`。
    数据源已就绪，实测 Pron 库缺口里头像能再补 4 人、简介能再补 2 人
-   （增量小是正常的：A 阶段已经用同一份源补过一轮，剩下的是源里本来就没有的人）
+   （增量小是正常的：此前已用同一份源补过一轮，剩下的是源里本来就没有的人）
 2. 可选：消除 `NU1903` 警告 —— `Microsoft.Data.Sqlite 9.0.0` 传递依赖
    `SQLitePCLRaw.lib.e_sqlite3 2.1.10`（有已知漏洞告警）。
    升级需重新验证 SQLite 原生库加载，风险不小，暂无收益
 
 ### 数据源位置
-
-A 阶段与 B 阶段**共用同一份数据源**，别各指一份，否则两边行为会分叉：
 
 ```
 C:\Jellyfin\Data\LocalMeta-Sources\
@@ -96,20 +82,14 @@ C:\Jellyfin\Data\LocalMeta-Sources\
 └─ avatars/              头像实体文件（1346 个，jpg + webp）
 ```
 
-配置位置：
-- B 阶段：`C:\Jellyfin\Data\plugins\configurations\Jellyfin.Plugin.LocalMeta.xml`
-  的 `ProfileDbPath` / `AvatarSourceDir`（也可在后台配置页改）
-- A 阶段：`a-script/config.json` 的 `sources`
+配置位置：`C:\Jellyfin\Data\plugins\configurations\Jellyfin.Plugin.LocalMeta.xml`
+的 `ProfileDbPath` / `AvatarSourceDir`（也可在后台配置页改）。
 
 这份数据是从 NAS 的 JavBoss 容器拉下来的
 （`/share/CACHEDEV1_DATA/Container/javboss/data`），源更新时重新拉一次覆盖即可。
 
 ### 改代码时的规矩
 
-- **逻辑同步只在"会影响判定"时才有必要**：A 已退出自动化，
-  姓名归一化、罩杯映射、脏数据阈值这些偶尔不同步不会造成实际损害，
-  反而是 dry-run 数字对不上时的排查线索。真正要同步的是**判定逻辑**
-  （什么算"缺图"、什么算"缺简介"），否则 dry-run 会给出误导性结论。
 - **改 Jellyfin 版本前先取证，别先改代码**（目录必须是真在跑的那份，见下）：
   ```bat
   cd tools\apiprobe && dotnet build -c Release
@@ -117,8 +97,16 @@ C:\Jellyfin\Data\LocalMeta-Sources\
   ```
 - **改数据库操作前先看 schema**：12.1.0 已经坑过一次（Id 脱钩），
   别照抄旧 SQL，用 sqlite 只读查一遍当前真实结构
-- **改完必须 dry-run 对比基线**：`python localmeta.py --dry-run`，
-  "待补"数字要和升级前吻合，不吻合就是判定逻辑错了
+- **改判定逻辑后要核对数字**：插件没有空跑/预演模式，
+  所以用 sqlite 只读统计缺口数，跟基线对比（基线：待补头像 27 / 待补简介 208）：
+  ```sql
+  -- 缺头像的 Actor 数（按 Peoples.Id 查 Primary 图）
+  SELECT COUNT(DISTINCT p.Id) FROM Peoples p
+    JOIN PeopleBaseItemMap m ON m.PeopleId=p.Id
+    LEFT JOIN BaseItemImageInfos i ON i.ItemId=p.Id AND i.ImageType=0
+    WHERE p.PersonType='Actor' AND i.Id IS NULL;
+  ```
+  数字对不上就是判定逻辑错了，别急着放它去写库。
 
 ### 升级 Jellyfin 时的自检清单
 
@@ -129,7 +117,7 @@ C:\Jellyfin\Data\LocalMeta-Sources\
    （注意核对同一条日志的 `Jellyfin version`，别拿旧版本日志当证据）
 4. apiprobe 取证扩展点签名
 5. sqlite 只读比对 schema
-6. `python localmeta.py --dry-run` 核对数字
+6. 用上面的 SQL 核对缺口数字与基线是否吻合
 
 详见 [`docs/10-升级适配-Jellyfin-12.1.0.md`](docs/10-升级适配-Jellyfin-12.1.0.md)。
 
@@ -138,14 +126,7 @@ C:\Jellyfin\Data\LocalMeta-Sources\
 ## 常用命令
 
 ```bat
-:: A 阶段（诊断 / 应急，不定时）
-cd a-script
-python localmeta.py --dry-run              :: 预演：升级后核对"待补"数字，只看不写
-python localmeta.py                        :: 实际执行（仅在应急兜底时用）
-:: python localmeta.py --only avatar       :: 只补头像
-:: python localmeta.py --only bio          :: 只补简介
-
-:: B 阶段
+:: 插件
 cd b-plugin
 powershell -ExecutionPolicy Bypass -File build.ps1 -PackOnly   :: 只编译
 powershell -ExecutionPolicy Bypass -File deploy.ps1            :: 部署 + 重启

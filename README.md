@@ -20,25 +20,17 @@ schema、插件加载三项均实测通过，见 [docs/10-升级适配-Jellyfin-
 
 所以定位是**兜底 + 防回退**，不是"再去刨新数据源"。
 
-## 两条路，分工不同
+## 工作方式
 
-```
-b-plugin/   Jellyfin 插件（C#，net10.0）          ← 常态化补齐，主力
-            ILocalMetadataProvider<Person> + IRemoteImageProvider：
-            人物页刷新 / 新演员入库时当场兜底，不用等定时任务。
-            另有 IScheduledTask 每天全量扫一次补漏。
+插件挂在 Jellyfin 的 provider 链上，靠 `Order = 100` 排在 MetaTube 等远程刮削器**之后**，
+所以它天然"上游没刮到才兜"，不需要写任何互斥判断。两条触发路径：
 
-a-script/   Python 诊断 + 应急工具                ← 不参与自动化
-            保留下来干 B 做不到、又必须有的两件事：
-            1. --dry-run 预演：升级 Jellyfin 后验证判定逻辑还没被打挂
-            2. 应急通道：插件挂了 / 配置改坏时手工兜底
-```
+| 路径 | 触发时机 | 作用 |
+|---|---|---|
+| `ILocalMetadataProvider<Person>` + `IRemoteImageProvider` | 人物页刷新、元数据重刮、新演员入库 | **当场兜底**，不用等定时任务 |
+| `IScheduledTask`（默认每 24 小时） | 定时全量扫描 | 补漏：历史条目、provider 没覆盖到的情况 |
 
-不让两条路并行跑的理由：并行就得长期维持两套逻辑同步，收益却几乎为零——
-B 的实时兜底 A 从结构上做不到，A 的 dry-run B 也没有，
-重叠的部分（定时全量补）留 B 一份就够。
-
-A 阶段默认不注册计划任务，顺带也省掉了外部进程在 Jellyfin 运行时直写库的撞锁风险。
+两条路径共用同一套判定逻辑，行为一致。
 
 ## 目录
 
@@ -46,13 +38,7 @@ A 阶段默认不注册计划任务，顺带也省掉了外部进程在 Jellyfin
 PROJECT.md          项目维护入口：状态、待办、维护规矩、本机环境
 README.md           本文件：产品说明
 
-a-script/           A 阶段：诊断 + 应急脚本（Python，不定时运行）
-├─ localmeta.py     主程序，配置驱动、幂等、只补空、支持 --dry-run
-├─ config.json      全部配置项（数据源、阈值、姓名规则）
-├─ install_task.ps1 注册 / 卸载 Windows 计划任务（默认不注册）
-└─ README.md        详细说明
-
-b-plugin/           B 阶段：Jellyfin 插件（C#）
+b-plugin/           插件（C#，net10.0）
 ├─ Jellyfin.Plugin.LocalMeta/
 │  ├─ Plugin.cs                          插件入口
 │  ├─ PluginConfiguration.cs             配置模型
@@ -70,31 +56,14 @@ tools/
 docs/
 ├─ 10-升级适配-Jellyfin-12.1.0.md      12.1.0 适配说明（schema 变更、数据目录坑）
 ├─ 11-兼容性检查报告-12.1.0.md          升级后的检查过程与证据
-├─ 20-插件方案-实施版.md                A+B 实施方案
+├─ 20-插件方案-实施版.md                 实施方案与取舍记录
 ├─ 30-演员资料体检与修复报告.md          数据来源与缺口分析
 └─ 40-协作-GitHub推送与上传.md          SSH 推送配置与常见故障
 ```
 
 ## 快速开始
 
-### A 阶段（诊断 / 应急，不定时）
-
-```bat
-cd a-script
-
-:: 改 config.json：填 Jellyfin 数据目录、数据源路径
-python localmeta.py --dry-run     :: 预演：只看不写，核对"待补"数字
-
-:: 确认无误后再实际执行（应急兜底时才需要）
-python localmeta.py
-python localmeta.py --only avatar :: 只补头像
-python localmeta.py --only bio    :: 只补简介
-```
-
-升级 Jellyfin 后**先跑 `--dry-run`**：输出"待补头像 N / 待补简介 M"，
-数字要和升级前基线吻合，不吻合说明判定逻辑被 schema 变更打挂了，先修脚本再执行。
-
-### B 阶段（常态化补齐，主力）
+### 编译与部署
 
 ```bat
 :: 需要 .NET 10 SDK（12.1.0 宿主是 net10.0，插件 TFM 已同步）
@@ -169,8 +138,8 @@ dotnet bin\Release\net10.0\apiprobe.dll "C:\Jellyfin" NS:MediaBrowser.Controller
 
 ## 数据安全
 
-- 两条路都**只补空字段**，不覆盖已有内容。
-- 写 `jellyfin.db` 前自动备份，按时间轮转保留最近 N 份。
+- 只补空字段，不覆盖已有内容。
+- 写 `jellyfin.db` 前自动备份，按时间轮转保留最近 N 份（配置页可调）。
 - 配置页可关掉备份（不建议）。
 - 部署插件时**只部署插件自己的 dll**，宿主程序集由 csproj 目标自动剔除 ——
   覆盖 `MediaBrowser.*` / `Jellyfin.*` 会导致版本冲突甚至 Jellyfin 起不来。
@@ -180,12 +149,12 @@ dotnet bin\Release\net10.0\apiprobe.dll "C:\Jellyfin" NS:MediaBrowser.Controller
 | | 要求 |
 |---|---|
 | Jellyfin | **10.11.x 或 12.1.x**；其他版本需先跑 `tools/apiprobe` 取证，见下 |
-| A 阶段 | Python 3.9+（仅标准库即可跑，联网源才需要 `requests`） |
-| B 阶段 | **.NET 10 SDK**（插件 TFM `net10.0`，引用 `Jellyfin.Controller 12.1.0`） |
+| 构建 | **.NET 10 SDK**（插件 TFM `net10.0`，引用 `Jellyfin.Controller 12.1.0`） |
+| 运行 | 无额外依赖，Jellyfin 宿主自带 runtime |
 
 ### Jellyfin 12.1.0 用户必读
 
-12.1.0 改了三处数据库 schema，其中一条会让**未升级的 A 阶段脚本误判全员缺图**：
+12.1.0 改了三处数据库 schema，其中一条会让**按旧写法直查数据库的代码误判全员缺图**：
 
 | # | 变更 | 10.11 | 12.1.0 |
 |---|---|---|---|
@@ -193,18 +162,20 @@ dotnet bin\Release\net10.0\apiprobe.dll "C:\Jellyfin" NS:MediaBrowser.Controller
 | 2 | Person 条目 Id 与 `Peoples.Id` | 同一个 GUID | **两个不同 GUID** |
 | 3 | `PeopleBaseItemMap.PeopleId` 指向 | 两者皆可 | `Peoples.Id` |
 
-本仓库脚本已适配：`Type` 写法自动探测，头像判定优先用 Person 条目 Id。
-升级 Jellyfin 后直接跑 `--dry-run` 即可，无需改配置。详细见
-[docs/10-升级适配-Jellyfin-12.1.0.md](docs/10-升级适配-Jellyfin-12.1.0.md)。
+插件已适配：`PersonEntityType` 用完整类名，头像判定以 Person 条目 Id 为准、
+查不到再退回 `Peoples.Id`，两个 Id 都要写图记录（否则影片页和人物页只有一个有图）。
+
+升级 Jellyfin 后不用改配置，但要按
+[docs/10-升级适配-Jellyfin-12.1.0.md](docs/10-升级适配-Jellyfin-12.1.0.md)
+里的自检清单核一遍，重点是**数据目录有没有换**。
 
 ## 状态
 
 | | 状态 |
 |---|---|
-| B 阶段（主力） | **已部署到本地 Jellyfin 12.1.0，插件加载成功（`status: Active`）**，已重定 `net10.0` + 引用升到 `Jellyfin.Controller 12.1.0` |
-| B 阶段数据源 | **已配置**（头像源 + javboss.db，日志「载入资料源 2 个」） |
-| B 阶段补数据效果 | 数据源命中已验证；实际写入待跑一次计划任务后确认 |
-| A 阶段（诊断/应急） | 12.1.0 schema 变更已适配并 dry-run 验证；**不注册计划任务**，只在升级自检与应急时用 |
+| 插件 | **已部署到本地 Jellyfin 12.1.0，加载成功（`status: Active`）**，TFM `net10.0` + 引用 `Jellyfin.Controller 12.1.0` |
+| 数据源 | **已配置**（头像源 + javboss.db，日志「载入资料源 2 个」） |
+| 补数据效果 | 数据源命中已验证；实际写入待跑一次计划任务后确认 |
 
 ## 许可
 

@@ -101,7 +101,6 @@ namespace Jellyfin.Plugin.LocalMeta.Providers
 
         /// <summary>
         /// 把结构化资料渲染成文本。模板可配，占位符 {bust} {waist} {hips} {cup} {height} {debut}。
-        /// 与 A 阶段 localmeta.py 的默认模板保持一致。
         /// </summary>
         internal static string RenderOverview(PersonProfile p, PluginConfiguration cfg)
         {

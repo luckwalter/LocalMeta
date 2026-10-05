@@ -1,10 +1,11 @@
-# Jellyfin.Plugin.LocalMeta（B 阶段）
+# Jellyfin.Plugin.LocalMeta
 
 Jellyfin 人物资料的**本地兜底 provider**。跟 MetaTube 这类远程刮削器互补：
 `Order = 100` 排在它们后面，只在头像/简介为空时才补，永不覆盖远程刮到的内容。
 
-与 A 阶段的 `localmeta/localmeta.py` 是**两条互为备份的同一套逻辑**，
-数据源、罩杯映射、姓名归一化规则两边保持一致，不会分叉。
+两条触发路径共用同一套判定逻辑：
+`ILocalMetadataProvider<Person>` / `IRemoteImageProvider` 在人物页刷新时**当场兜底**，
+`IScheduledTask` 再每天全量扫一次补漏。
 
 **状态：**
 - Jellyfin **10.11.6**：编译通过 + 加载验证通过（2026-10-05）
@@ -24,7 +25,7 @@ Jellyfin 人物资料的**本地兜底 provider**。跟 MetaTube 这类远程刮
 ## 目录
 
 ```
-jellyfin-plugin-localmeta/
+b-plugin/
 ├─ build.ps1                                 编译 + 部署 / 卸载（含产物安全校验）
 └─ Jellyfin.Plugin.LocalMeta/
    ├─ Jellyfin.Plugin.LocalMeta.csproj       net10.0 + Jellyfin.Controller 12.1.0
@@ -220,7 +221,7 @@ grep -a "LocalMeta" "C:/Jellyfin/Data/log/"*.log | tail -5
 1. 在 `Sources/LocalMetaSources.cs` 里实现 `ILocalMetaProfileSource`
    （`TryGetProfile` / `TryGetAvatarPath` 各一个）
 2. 在 `LocalMetaSourceFactory.Build()` 里挂一行
-3. A 阶段 `config.json` 加一条 `sources` 项
+3. 需要路径的话在 `PluginConfiguration` 加字段 + 配置页加输入框
 
 provider 和计划任务都不用改 —— 它们只面向接口编程。
 
@@ -294,7 +295,7 @@ cd ..\dotnet-setup\apiprobe
 - **`.ps1` 必须是 UTF-8 with BOM。** PowerShell 5.1 默认按 GBK 解码 `.ps1`，
   中文注释会把整行解析带崩（症状：注册对象报"参数为 Null"）。
   本机执行策略是 `Restricted`，跑脚本要 `-ExecutionPolicy Bypass`。
-- **别用 SYSTEM 账户注册计划任务。** A 阶段注册时踩过，非管理员 shell 会失败。
+- **别用 SYSTEM 账户注册计划任务。** 非管理员 shell 会失败。
 - **Jellyfin 运行中改 db 不生效。** 内存有缓存，页面要重启才刷新。插件同理（换 dll 必须重启）。
 
 ## 验证记录（2026-10-05）

@@ -1,25 +1,29 @@
 # LocalMeta 项目记忆
 
-Jellyfin 人物资料（头像/简介）本地兜底。A 阶段 Python 守护脚本 + B 阶段 C# 插件，
-两条路互为备份，逻辑必须保持同步。
+Jellyfin 人物资料（头像/简介）本地兜底的 C# 插件。
+两条触发路径（provider 当场兜底 + 计划任务每天补漏）共用同一套判定逻辑。
+
+> 2026-10-06 起单轨：早期并行的 Python 守护脚本已整仓移除，git 历史里还能翻到。
 
 ## 项目约定
 
 - 维护入口 `PROJECT.md`；产品说明 `README.md`；部署细则 `b-plugin/README.md`
 - 代码托管 `git@github.com:luckwalter/LocalMeta.git`（main 分支）
-- 改 A 阶段的逻辑（姓名归一化 / 罩杯映射 / 脏数据阈值）必须同步改 B 阶段，反之亦然
-- 改完先 `--dry-run`，"待补"数字要和基线吻合才允许实际执行
-- **A 与 B 共用同一份数据源** `C:\Jellyfin\Data\LocalMeta-Sources\`，别各指一份
+- 数据源 `C:\Jellyfin\Data\LocalMeta-Sources\`
+- 改判定逻辑后要核对缺口数字（基线：待补头像 27 / 待补简介 208），
+  对不上就是判定错了，别放它去写库
 
 ## 关键知识（踩过坑，别再踩）
 
-**B 插件三个致命坑（都只在真实数据上暴露）**
+**插件三个致命坑（都只在真实数据上暴露）**
 - Newtonsoft **不能** `DeserializeObject<IEnumerable>` → `JsonSerializationException`，
   两个 provider 构造失败，插件"加载成功"但完全不工作。用 `JArray.Parse` + try/catch
 - `appPaths.DataPath` **本身就是 `.../Data/data`**，别再拼 `"data"`；
   而 `metadata/People` 在 DataPath 的**上一级**
-- `cup` 为 NULL 不能当索引 0（会错写成 A 罩杯），javboss 里 74% 为空。
-  A 脚本 `_cup_letter` 对空值返回空串，两边一致
+- `cup` 为 NULL 不能当索引 0（会错写成 A 罩杯），javboss 里 74% 为空，
+  空值必须返回空串
+- `INSERT OR REPLACE` 配 `Guid.NewGuid()` 主键是**无效写法**（永远撞不上，
+  REPLACE 不触发）→ 重复跑会积累多条图片记录。先 DELETE 同 ItemId+ImageType 再插
 
 **判断插件是否真在工作**：光看 `Loaded plugin` 不够，要看
 `[LocalMeta] 载入资料源 N 个`，N=0 就是源没配上；还要看有没有

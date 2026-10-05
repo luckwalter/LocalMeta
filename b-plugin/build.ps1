@@ -52,8 +52,7 @@ if (-not $dotnet) {
 }
 if (-not $dotnet -or -not (Test-Path $dotnet)) {
     Say "没找到带 .NET 10 SDK 的 dotnet。"
-    Say "装法：https://dot.net/v1/dotnet-install.ps1 -Channel 9.0 -InstallDir `"$env:USERPROFILE\.dotnet`""
-    Say "或直接改用 A 阶段的 localmeta.py（纯 Python，无需 SDK）。"
+    Say "装法：https://dot.net/v1/dotnet-install.ps1 -Channel 10.0 -InstallDir `"$env:USERPROFILE\.dotnet`""
     exit 3
 }
 

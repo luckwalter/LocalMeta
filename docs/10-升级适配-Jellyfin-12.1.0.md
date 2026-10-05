@@ -1,8 +1,10 @@
 # Jellyfin 12.1.0 升级适配说明
 
-本仓库（A 阶段脚本 + B 阶段插件）在 Jellyfin **10.11.6 → 12.1.0** 升级后的实测结论与改动。
+本仓库插件在 Jellyfin **10.11.6 → 12.1.0** 升级后的实测结论与改动。
 
-结论先行：**插件代码无需改动即可在 12.1.0 上加载运行；A 阶段脚本需改一处查询，本仓库已改完并验证。**
+结论先行：**插件的业务代码无需改动即可在 12.1.0 上加载运行。**
+真正会出事的是两件跟代码无关的事：数据目录可能换、数据库 schema 变了。
+前者会让 Jellyfin 变成空库，后者会让"按旧写法直查数据库"的代码误判全员缺图。
 
 ---
 
@@ -103,41 +105,7 @@ jellyfin.exe --datadir C:\Jellyfin\Data
 
 ---
 
-## 四、A 阶段脚本改了什么
-
-文件：`a-script/localmeta.py`
-
-| 位置 | 改动 |
-|---|---|
-| 新增 `detect_person_type()` | 自动探测 `BaseItems.Type` 的实际写法（完整类名 ↔ 短名），配置值优先、查不到自动回退，10.11 / 12.1 都能跑 |
-| `scan()` 头像判定 | 优先用 Person 条目 Id（`BaseItems.Id`）查，查不到再退回 `Peoples.Id` |
-| 写入 `BaseItemImageInfos` | 只写 Person 条目 Id；仅当该演员没有 Person 条目时才退回 `Peoples.Id` |
-
-改动前后对比（同一份 12.1.0 真实库，754 名 Actor）：
-
-```
-改前：待补头像 754   ← 全员误判为缺图
-改后：待补头像  27   ← 与升级前基线吻合
-```
-
-写入侧顺带修掉一个旧缺陷：以前对两个 Id 各写一条，10.11 下两者同值会产生重复记录，
-现在只写一条。
-
-### 配置无需改动
-
-`a-script/config.json` 里 `personType` 本来就是完整类名，正好匹配 12.1.0；
-`jellyfinDb` / `metadataDir` 只要数据目录没变就仍然有效。
-
-**升级后建议先空跑一遍确认**：
-
-```bat
-cd a-script
-python localmeta.py --dry-run
-```
-
----
-
-## 五、B 阶段插件：实测兼容，无需改动
+## 四、插件侧：实测兼容，无需改动
 
 | 关注点 | 结论 |
 |---|---|
@@ -146,27 +114,21 @@ python localmeta.py --dry-run
 | 加载结果 | `Loaded plugin: "LocalMeta" "0.3.0.0"` |
 | 第三方插件 | MetaTube 2025.1102.2200.0 / ThePornDB 1.6.0.11 / TheTVDB 20.0.0.0（均为 10.11 编译）也全部加载成功 |
 
-### 可选：重定目标到 net10.0
+### 已重定到 net10.0
 
-不重定也能跑，想彻底对齐宿主再做这步（需要 .NET 10 SDK）：
-
-```xml
-<!-- Jellyfin.Plugin.LocalMeta.csproj -->
-<TargetFramework>net10.0</TargetFramework>
-<PackageReference Include="Jellyfin.Controller" Version="12.1.0" />
-```
-
-改完必须重新编译验证，不要直接改版本号就部署。
+插件 TFM 现为 `net10.0`，引用 `Jellyfin.Controller 12.1.0`，与宿主完全对齐。
+（此前 net9.0 也能在 net10.0 宿主下加载，但既然宿主已是 net10.0 就同步过去了。）
+过程与踩坑见 [12-环境升级-.NET10-SDK.md](12-环境升级-.NET10-SDK.md)。
 
 ---
 
 ## 六、升级前的自检清单
 
-1. **备份** `jellyfin.db`（A 脚本每次执行也会自动备份，但升级前手动备一份更稳）
+1. **备份** `jellyfin.db`
 2. 记下当前数据目录：日志里搜 `Storage path`
 3. 升级后**先确认数据目录没变**；变了就加 `--datadir` 指回旧目录再启动
 4. 看插件加载列表里有没有 `LocalMeta`
-5. `python localmeta.py --dry-run` 空跑，核对"待补"数字是否和升级前一致
+5. 用 sqlite 只读核对缺口数字是否和升级前一致（基线：待补头像 27 / 待补简介 208）
 
 ---
 

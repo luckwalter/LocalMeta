@@ -4,8 +4,7 @@ using MediaBrowser.Model.Plugins;
 namespace Jellyfin.Plugin.LocalMeta
 {
     /// <summary>
-    /// 配置模型。所有默认值都对齐 A 阶段 localmeta.py 的 config.json，
-    /// 两边改一处要同步另一处，避免两个实现行为分叉。
+    /// 配置模型。默认值都经过实测校准（依据见各字段注释），
     /// 新字段只增不删，旧配置升级后仍可加载。
     ///
     /// 基类说明（10.11.6 实测签名取证）：
@@ -30,7 +29,6 @@ namespace Jellyfin.Plugin.LocalMeta
         ///
         /// 注意：开启后会把远程刮削器（MetaTube 等）刮到的内容一起冲掉，
         /// 只在确认要重刷时临时打开，刷完记得关回去。
-        /// 对齐 A 阶段 config.json 的 overwriteExisting。
         /// </summary>
         public bool OverwriteExisting { get; set; }
 
@@ -38,7 +36,6 @@ namespace Jellyfin.Plugin.LocalMeta
         /// 写库前最多保留多少份 jellyfin.db 备份，按文件名（内含时间戳）轮转删除最旧的。
         ///
         /// 实测每份约 47MB，不做轮转的话每天一份一年就是 17GB。
-        /// 对齐 A 阶段 config.json 的 backupMax=10。
         /// </summary>
         public int BackupMax { get; set; } = 10;
 

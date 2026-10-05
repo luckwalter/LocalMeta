@@ -46,7 +46,6 @@ namespace Jellyfin.Plugin.LocalMeta.Sources
 
     /// <summary>
     /// 名字归一化：去括号别名、压空白、按替换表校正。
-    /// 规则与 A 阶段 localmeta.py 的 nameRules 保持一致。
     /// </summary>
     public static class NameNormalizer
     {
@@ -185,7 +184,6 @@ namespace Jellyfin.Plugin.LocalMeta.Sources
 
             // cup 为 NULL 时必须留空，不能按索引 0 映射成 A。
             // 数据源实测 1456 条里有 1078 条 cup 为空，按 0 处理会把这些人错写成 A 罩杯。
-            // A 阶段 localmeta.py 的 _cup_letter 对空值返回空串，两边行为必须一致。
             var cup = string.Empty;
             var cupRaw = reader["cup"];
             if (cupRaw != null && cupRaw != DBNull.Value)
