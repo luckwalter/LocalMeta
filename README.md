@@ -80,10 +80,13 @@ powershell -ExecutionPolicy Bypass -File install_task.ps1
 ```bat
 :: 需要 .NET 9 SDK
 cd b-plugin
-powershell -ExecutionPolicy Bypass -File build.ps1 -PackOnly   :: 只编译验证
-powershell -ExecutionPolicy Bypass -File build.ps1             :: 编译并部署
-:: 重启 Jellyfin，后台 → 插件 看到 LocalMeta
+powershell -ExecutionPolicy Bypass -File build.ps1 -PackOnly   :: 只编译
+powershell -ExecutionPolicy Bypass -File deploy.ps1           :: 部署 + 重启
 ```
+
+脚本会自动停 Jellyfin、备份旧目录、按白名单复制、校验、重启。
+**部署规则坑较多**（Jellyfin 会递归扫描插件目录下每个 dll，原生库会导致整个插件
+被标 Malfunctioned），务必看 `b-plugin/README.md` 的「部署规则」章节，别自己手工拷 dll。
 
 ## 核心设计：三条硬规矩
 
@@ -161,8 +164,9 @@ dotnet bin\Release\net9.0\apiprobe.dll "C:\Jellyfin" NS:MediaBrowser.Controller.
 | | 状态 |
 |---|---|
 | A 阶段 | 已上线运行，计划任务已注册验证 |
-| B 阶段 | 编译通过 + 加载验证通过（三个 provider 均被宿主识别） |
-| B 阶段运行期 | **未验证** —— 需部署后重启 Jellyfin 在后台实测 |
+| B 阶段 | **已部署到本地 Jellyfin 10.11.6，插件加载成功（`status: Active`）** |
+| B 阶段数据源 | 待配置：配置页填两个路径后重启，才会出现「载入资料源 N 个」 |
+| B 阶段补数据效果 | **未验证** —— 需在后台刷新人物元数据后看日志有无 `[LocalMeta]` 输出 |
 
 ## 许可
 

@@ -35,13 +35,65 @@ jellyfin-plugin-localmeta/
 需要 .NET 9 SDK。本机实测装在 `<USERPROFILE>\.dotnet\dotnet.exe`（9.0.318）：
 
 ```bat
-powershell -ExecutionPolicy Bypass -File build.ps1
+powershell -ExecutionPolicy Bypass -File build.ps1 -PackOnly
 ```
 
-编译 + 部署到 `C:\Jellyfin\Data\plugins\Jellyfin.Plugin.LocalMeta`。
-`build.ps1` 会自动挑**真正带 SDK** 的那个 dotnet（见下方「PATH 陷阱」）。
+> `-PackOnly` 只编译不部署。部署请用下面的 `deploy.ps1`（**不要**用 build.ps1 直接装）。
 
-> `-PackOnly` 只编译不部署；`-Uninstall` 卸载（会先把旧目录改名备份）。
+## 部署
+
+```bat
+powershell -ExecutionPolicy Bypass -File deploy.ps1
+:: 编译产物不在默认位置时
+powershell -ExecutionPolicy Bypass -File deploy.ps1 -PublishDir <publish目录>
+```
+
+脚本会：停 Jellyfin → 备份旧目录 → 复制白名单文件 → 校验 → 重启（走 Tray）。
+
+`-Uninstall` 卸载（目录移到 `Data\LocalMeta_backup\`，可回滚）。
+
+### ⚠️ 部署规则（这几条踩过，别改）
+
+**规则 1：Jellyfin 会递归扫描插件目录下每一个 `.dll`，尝试当程序集加载。**
+任何非托管文件都会抛 `BadImageFormatException`，进而在 `meta.json` 里把整个插件
+标成 `status: Malfunctioned` 并跳过加载。
+
+实测因此崩溃过两次：
+- 插件根目录放 `e_sqlite3.dll`（我以为这样更保险）→ 直接崩
+- `runtimes/win-arm/native/e_sqlite3.dll` 等一堆 RID 原生库 → 直接崩
+
+**所以 `runtimes/` 整个目录都不能带**，原生库由 SQLitePCLRaw 自行解析。
+部署脚本已按白名单只复制托管程序集，并在部署后断言「没有多余 dll、没有子目录」。
+
+**规则 2：宿主程序集（`MediaBrowser.*` / `Jellyfin.*`）绝不能进插件目录。**
+覆盖会导致程序集版本冲突甚至 Jellyfin 起不来。
+注意主程序集自己就叫 `Jellyfin.Plugin.LocalMeta.dll`，做排除时要显式放行它。
+
+**规则 3：`Microsoft.Extensions.*` / `EntityFrameworkCore` / `Polly` / `Newtonsoft`
+这些宿主基础设施，插件也不该带副本。** 实测 8 个版本与宿主不一致
+（如 `Microsoft.Data.Sqlite` 宿主 9.0.1125 vs 插件 9.0.24），留着可能与宿主抢程序集。
+
+**规则 4：加载失败后 Jellyfin 会记住。** `meta.json` 里写 `status: Malfunctioned`，
+即使文件修好也不加载，必须删掉 `meta.json` 让它重新扫描。
+注意 `meta.json` 的 `name` 是按**目录名**记的，改过目录名要一并删。
+
+**规则 5：改 dll 必须重启 Jellyfin**（不是热加载）。
+停的时候要连 `Jellyfin.Windows.Tray.exe` 一起停，否则 Tray 会把 `jellyfin.exe` 再拉起来。
+启动用 Tray，它的实际路径在**子目录**里：`C:\Jellyfin\jellyfin-windows-tray\Jellyfin.Windows.Tray.exe`。
+
+**规则 6：备份目录必须放在 `plugins\` 树之外。**
+放里面等于留了个含 dll 的目录让 Jellyfin 去扫（规则 1）。脚本落在 `Data\LocalMeta_backup\`。
+
+### 部署踩过的其它坑
+
+| 坑 | 症状 | 根因 |
+|---|---|---|
+| PowerShell `Copy-Item` | **报成功但文件没落地**，后续 `Test-Path` 才发现主 dll 不存在 | 受限环境下不可靠。改用 `copy_files.py`（Python 逐文件复制 + 逐个校验大小） |
+| `Get-Command python` | 命中 `AppData\Local\Microsoft\WindowsApps\python.exe` | 那是**应用商店占位符**，非交互会话里是空壳（不报错、不做事、退出码 0）。`Find-Python` 已显式跳过并实际跑一次验证 |
+| `Where-Object { return $true }` | 主 dll 被漏掉 | `return` 只是跳过本次判断，不代表结果为 true，必须用 `if/else` 明确赋值 |
+| `os.makedirs(exist_ok=True)` 抛 `FileExistsError` | 明明传了 `exist_ok` | 目标路径**存在但不是目录**（残留文件）。先判断 `isfile` 再删 |
+| 插件目录加载失败后一直不生效 | 反复重启都没用 | `meta.json` 里的 Malfunctioned 标记（规则 4） |
+
 
 ## PATH 陷阱（本机实测）
 
@@ -75,6 +127,56 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 配置文件落在 `C:\Jellyfin\Data\plugins\configurations\Jellyfin.Plugin.LocalMeta.xml`
 （**XML**，不是 JSON —— Jellyfin 插件配置走 `IXmlSerializer`）。
+
+## 部署后怎么验证有效果
+
+**第 1 步：确认插件已激活**
+
+后台 → 插件，LocalMeta 应显示 **Active**。命令行查：
+
+```bash
+grep -a '"name"\|"status"' "C:/Jellyfin/Data/plugins/Jellyfin.Plugin.LocalMeta/meta.json"
+# 期望：name=LocalMeta  status=Active
+```
+
+**第 2 步：确认数据源已载入**
+
+启动日志里会有一行：
+
+```
+[LocalMeta] 载入资料源 N 个
+```
+
+**N = 0 说明配置页还没填数据源路径**，插件处于空转状态。填完两个路径后需重启 Jellyfin
+（配置在构造函数里读，改配置不会热加载）。
+
+命令行查：
+
+```bash
+grep -a "LocalMeta" "C:/Jellyfin/Data/log/"*.log | tail -5
+```
+
+**第 3 步：确认 provider 真的被调用**
+
+打开某个人物页 → 触发元数据刷新（对该人物右键「刷新元数据」），
+日志里应出现：
+
+```
+[LocalMeta] 提供头像: <名字> <- <源名>
+[LocalMeta] 补简介: <名字> <- <源名>
+```
+
+**看不到这两行就是没生效**，按这个顺序排查：
+
+| 现象 | 原因 |
+|---|---|
+| 插件都没加载 | 看 `meta.json` 的 status（规则 4：可能是 Malfunctioned 残留） |
+| 载入资料源 0 个 | 配置页没填路径，或填错 |
+| 只有头像没有简介 | 数据源里该人物没有文字资料（JavBoss `jav_idol` 字段为空） |
+| 两条日志都没有 | provider 没被调用：确认人物页确实触发了元数据刷新 |
+
+> 注意：Jellyfin 的人物元数据有缓存，光打开页面可能不会真的调 provider，
+> 必须显式刷新。插件设计上「只补空」，如果该人物已有简介/头像，它本来就不会动。
 
 ## 升级与自定义（重点）
 

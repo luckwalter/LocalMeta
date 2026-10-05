@@ -45,3 +45,16 @@ __pycache__/
 
 # 推送脚本（bash 脚本不该入库）
 push.sh
+
+# 部署脚本运行日志
+b-plugin/deploy_run*.txt
+b-plugin/deploy_copy.txt
+b-plugin/final_verify.txt
+
+# 部署脚本运行日志
+b-plugin/deploy_run*.txt
+b-plugin/deploy_copy.txt
+b-plugin/final_verify.txt
+
+# 部署辅助输出
+b-plugin/copy_std*.txt
