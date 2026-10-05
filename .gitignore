@@ -42,3 +42,6 @@ avatars/
 venv/
 __pycache__/
 *.pyc
+
+# 推送脚本（bash 脚本不该入库）
+push.sh
