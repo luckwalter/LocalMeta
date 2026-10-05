@@ -253,12 +253,30 @@ if ($KeepRunning) {
     Say ""
     Say "下一步："
     Say "  1. 后台 → 插件，确认 LocalMeta 显示 Active"
-    Say "  2. 点进 LocalMeta 配置页，填两个数据源路径（见下）"
-    Say "  3. 控制台日志搜 [LocalMeta] 看载入结果"
+    Say "  2. 日志搜 [LocalMeta] 确认「载入资料源 N 个」"
+
+    # 顺便回显当前数据源配置，省得每次部署完还要翻配置文件确认
+    # （12.1.0 起默认数据目录可能换到 %LOCALAPPDATA%\jellyfin，所以按实际 DataDir 找）
+    $confDir = Join-Path $JellyfinDir "Data\plugins\configurations"
+    $conf = Join-Path $confDir "Jellyfin.Plugin.LocalMeta.xml"
     Say ""
-    Say "要填的路径（按本机实际位置）："
-    Say "  头像源目录      : C:\Users\<你>\WorkBuddy\<日期>\gf"
-    Say "  资料库(javboss) : C:\Users\<你>\WorkBuddy\<日期>\gf\javboss.db"
+    if (Test-Path $conf) {
+        [xml]$x = Get-Content $conf -Raw
+        $db  = $x.PluginConfiguration.ProfileDbPath
+        $av  = $x.PluginConfiguration.AvatarSourceDir
+        if ($db -or $av) {
+            Say "当前数据源配置（$conf）："
+            Say "  头像源目录      : $av"
+            Say "  资料库(javboss) : $db"
+            foreach ($p in @($db, $av)) {
+                if ($p -and -not (Test-Path $p)) { Say "  ！路径不存在，资料源会载入失败: $p" }
+            }
+        } else {
+            Say "数据源尚未配置，去后台配置页填 ProfileDbPath / AvatarSourceDir"
+        }
+    } else {
+        Say "未找到配置文件 $conf（首次部署正常，改一次配置页就会生成）"
+    }
 }
 
 

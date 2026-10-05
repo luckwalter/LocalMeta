@@ -20,17 +20,25 @@ schema、插件加载三项均实测通过，见 [docs/10-升级适配-Jellyfin-
 
 所以定位是**兜底 + 防回退**，不是"再去刨新数据源"。
 
-## 两条路，互为备份
+## 两条路，分工不同
 
 ```
-a-script/   纯 Python 守护脚本 + Windows 计划任务
-             → 零编译，改配置即生效。适合先跑起来。
-b-plugin/   Jellyfin 插件（C#，.NET 10 / net10.0）
-             → 跟 Jellyfin 生命周期绑定，人物页刷新/重刮时自动生效。
+b-plugin/   Jellyfin 插件（C#，net10.0）          ← 常态化补齐，主力
+            ILocalMetadataProvider<Person> + IRemoteImageProvider：
+            人物页刷新 / 新演员入库时当场兜底，不用等定时任务。
+            另有 IScheduledTask 每天全量扫一次补漏。
+
+a-script/   Python 诊断 + 应急工具                ← 不参与自动化
+            保留下来干 B 做不到、又必须有的两件事：
+            1. --dry-run 预演：升级 Jellyfin 后验证判定逻辑还没被打挂
+            2. 应急通道：插件挂了 / 配置改坏时手工兜底
 ```
 
-两者是**同一套逻辑的两份实现**：数据源抽象、姓名归一化规则、罩杯映射、脏数据阈值
-全部对齐。改一处要同步另一处 —— 这也是刻意的：一条挂了另一条还在。
+不让两条路并行跑的理由：并行就得长期维持两套逻辑同步，收益却几乎为零——
+B 的实时兜底 A 从结构上做不到，A 的 dry-run B 也没有，
+重叠的部分（定时全量补）留 B 一份就够。
+
+A 阶段默认不注册计划任务，顺带也省掉了外部进程在 Jellyfin 运行时直写库的撞锁风险。
 
 ## 目录
 
@@ -38,10 +46,10 @@ b-plugin/   Jellyfin 插件（C#，.NET 10 / net10.0）
 PROJECT.md          项目维护入口：状态、待办、维护规矩、本机环境
 README.md           本文件：产品说明
 
-a-script/           A 阶段：守护脚本（Python）
-├─ localmeta.py     主程序，配置驱动、幂等、只补空
+a-script/           A 阶段：诊断 + 应急脚本（Python，不定时运行）
+├─ localmeta.py     主程序，配置驱动、幂等、只补空、支持 --dry-run
 ├─ config.json      全部配置项（数据源、阈值、姓名规则）
-├─ install_task.ps1 注册 / 卸载 Windows 计划任务
+├─ install_task.ps1 注册 / 卸载 Windows 计划任务（默认不注册）
 └─ README.md        详细说明
 
 b-plugin/           B 阶段：Jellyfin 插件（C#）
@@ -69,22 +77,24 @@ docs/
 
 ## 快速开始
 
-### A 阶段（推荐先跑）
+### A 阶段（诊断 / 应急，不定时）
 
 ```bat
 cd a-script
-python -m venv .venv
-.venv\Scripts\pip install requests
 
 :: 改 config.json：填 Jellyfin 数据目录、数据源路径
-python localmeta.py --dry-run     :: 先空跑，看会补什么
-python localmeta.py               :: 实际执行
+python localmeta.py --dry-run     :: 预演：只看不写，核对"待补"数字
 
-:: 注册每天自动跑（默认 03:10）
-powershell -ExecutionPolicy Bypass -File install_task.ps1
+:: 确认无误后再实际执行（应急兜底时才需要）
+python localmeta.py
+python localmeta.py --only avatar :: 只补头像
+python localmeta.py --only bio    :: 只补简介
 ```
 
-### B 阶段
+升级 Jellyfin 后**先跑 `--dry-run`**：输出"待补头像 N / 待补简介 M"，
+数字要和升级前基线吻合，不吻合说明判定逻辑被 schema 变更打挂了，先修脚本再执行。
+
+### B 阶段（常态化补齐，主力）
 
 ```bat
 :: 需要 .NET 10 SDK（12.1.0 宿主是 net10.0，插件 TFM 已同步）
@@ -191,11 +201,10 @@ dotnet bin\Release\net10.0\apiprobe.dll "C:\Jellyfin" NS:MediaBrowser.Controller
 
 | | 状态 |
 |---|---|
-| A 阶段 | 已上线运行，计划任务已注册验证；12.1.0 schema 变更已适配并 dry-run 验证 |
-| B 阶段 | **已部署到本地 Jellyfin，插件加载成功（`status: Active`）** |
-| B 阶段 12.1.0 | **实测加载成功**（插件已重定 `net10.0` + 引用升到 `Jellyfin.Controller 12.1.0`） |
+| B 阶段（主力） | **已部署到本地 Jellyfin 12.1.0，插件加载成功（`status: Active`）**，已重定 `net10.0` + 引用升到 `Jellyfin.Controller 12.1.0` |
 | B 阶段数据源 | **已配置**（头像源 + javboss.db，日志「载入资料源 2 个」） |
 | B 阶段补数据效果 | 数据源命中已验证；实际写入待跑一次计划任务后确认 |
+| A 阶段（诊断/应急） | 12.1.0 schema 变更已适配并 dry-run 验证；**不注册计划任务**，只在升级自检与应急时用 |
 
 ## 许可
 

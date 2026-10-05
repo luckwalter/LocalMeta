@@ -21,17 +21,25 @@ Jellyfin 人物资料（头像 / 简介）的**本地兜底**方案。跟 MetaTu
 
 ---
 
-## 两条路，互为备份
+## 两条路，分工不同
 
 ```
-a-script/   纯 Python 守护脚本 + Windows 计划任务
-            零编译，改配置即生效。已上线。
-b-plugin/   Jellyfin 插件（C#，net10.0）
-            跟 Jellyfin 生命周期绑定，人物页刷新/重刮时自动生效。已部署待验证。
+b-plugin/   Jellyfin 插件（C#，net10.0）       ← 常态化补齐，主力
+            ILocalMetadataProvider<Person> + IRemoteImageProvider：
+            人物页刷新 / 新演员入库时当场兜底，不用等定时任务。
+            外加 IScheduledTask 每天全量扫一次补漏。
+a-script/   Python 诊断 + 应急工具             ← 不参与自动化
+            B 做不到、又必须有的两件事：
+            1. --dry-run 预演：升级 Jellyfin 后验证判定逻辑还没被打挂
+            2. 应急通道：插件挂了/配置改坏时手工兜底
 ```
 
-两者是**同一套逻辑的两份实现**：数据源抽象、姓名归一化规则、罩杯映射、脏数据阈值
-全部对齐。改一处要同步另一处 —— 这是刻意的：一条挂了另一条还在。
+**为什么不让两条路并行跑**：并行就得长期维持两套逻辑同步，收益却几乎为零——
+B 的实时兜底能力 A 从结构上做不到，A 的 dry-run 能力 B 也没有，
+两者重叠的部分（定时全量补）留 B 一份就够。
+
+A 阶段**默认不注册计划任务**（实测本机也确实从未注册过），
+退出自动化的同时也省掉了外部进程在 Jellyfin 运行时直写库的撞锁风险。
 
 ---
 
@@ -41,10 +49,10 @@ b-plugin/   Jellyfin 插件（C#，net10.0）
 LocalMeta/
 ├─ PROJECT.md              本文件：项目维护入口
 ├─ README.md               产品说明（定位、设计、数据源、环境要求）
-├─ a-script/               A 阶段：守护脚本（Python）
-│  ├─ localmeta.py         主程序，配置驱动、幂等、只补空
+├─ a-script/               A 阶段：诊断 + 应急脚本（Python，不定时运行）
+│  ├─ localmeta.py         主程序，配置驱动、幂等、只补空、支持 --dry-run
 │  ├─ config.json          全部配置项
-│  ├─ install_task.ps1     注册 / 卸载 Windows 计划任务
+│  ├─ install_task.ps1     注册 / 卸载 Windows 计划任务（默认不注册）
 │  └─ README.md            详细说明
 ├─ b-plugin/               B 阶段：Jellyfin 插件（C#）
 │  ├─ Jellyfin.Plugin.LocalMeta/
@@ -98,7 +106,10 @@ C:\Jellyfin\Data\LocalMeta-Sources\
 
 ### 改代码时的规矩
 
-- **A 和 B 的逻辑必须同步**：姓名归一化、罩杯映射、脏数据阈值，改一处要改两处
+- **逻辑同步只在"会影响判定"时才有必要**：A 已退出自动化，
+  姓名归一化、罩杯映射、脏数据阈值这些偶尔不同步不会造成实际损害，
+  反而是 dry-run 数字对不上时的排查线索。真正要同步的是**判定逻辑**
+  （什么算"缺图"、什么算"缺简介"），否则 dry-run 会给出误导性结论。
 - **改 Jellyfin 版本前先取证，别先改代码**（目录必须是真在跑的那份，见下）：
   ```bat
   cd tools\apiprobe && dotnet build -c Release
@@ -127,11 +138,12 @@ C:\Jellyfin\Data\LocalMeta-Sources\
 ## 常用命令
 
 ```bat
-:: A 阶段
+:: A 阶段（诊断 / 应急，不定时）
 cd a-script
-python localmeta.py --dry-run              :: 空跑，看会补什么
-python localmeta.py                        :: 实际执行
-powershell -ExecutionPolicy Bypass -File install_task.ps1   :: 注册每天 03:10 自动跑
+python localmeta.py --dry-run              :: 预演：升级后核对"待补"数字，只看不写
+python localmeta.py                        :: 实际执行（仅在应急兜底时用）
+:: python localmeta.py --only avatar       :: 只补头像
+:: python localmeta.py --only bio          :: 只补简介
 
 :: B 阶段
 cd b-plugin

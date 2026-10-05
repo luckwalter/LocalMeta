@@ -25,9 +25,22 @@ namespace Jellyfin.Plugin.LocalMeta
         public string LibraryNames { get; set; } = "Japan Pron Movie";
 
         /// <summary>
-        /// 是否只补空字段。false 会覆盖已有的头像/简介，默认 false（安全）。
+        /// 是否覆盖已有字段。false（默认）= 只补空，已有头像/简介的一律跳过；
+        /// true = 源里有的都覆盖一次。
+        ///
+        /// 注意：开启后会把远程刮削器（MetaTube 等）刮到的内容一起冲掉，
+        /// 只在确认要重刷时临时打开，刷完记得关回去。
+        /// 对齐 A 阶段 config.json 的 overwriteExisting。
         /// </summary>
         public bool OverwriteExisting { get; set; }
+
+        /// <summary>
+        /// 写库前最多保留多少份 jellyfin.db 备份，按文件名（内含时间戳）轮转删除最旧的。
+        ///
+        /// 实测每份约 47MB，不做轮转的话每天一份一年就是 17GB。
+        /// 对齐 A 阶段 config.json 的 backupMax=10。
+        /// </summary>
+        public int BackupMax { get; set; } = 10;
 
         /// <summary>
         /// 单次计划任务最多处理多少人，防止大库一次跑太久。

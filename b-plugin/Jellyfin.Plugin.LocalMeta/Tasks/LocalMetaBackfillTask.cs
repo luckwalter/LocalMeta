@@ -101,7 +101,9 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
 
                 var name = NameNormalizer.ApplySubstitutes(t.Name, cfg.NameSubstitutes);
 
-                if (!t.HasImage && cfg.ProvideImages)
+                // OverwriteExisting 默认 false = 只补空。开启后已有内容也会被源覆盖，
+                // 会把远程刮削器刮到的资料一起冲掉，只在确认重刷时临时打开。
+                if (cfg.ProvideImages && (cfg.OverwriteExisting || !t.HasImage))
                 {
                     foreach (var src in sources)
                     {
@@ -126,7 +128,7 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
                     }
                 }
 
-                if (!t.HasBio && cfg.ProvideMetadata)
+                if (cfg.ProvideMetadata && (cfg.OverwriteExisting || !t.HasBio))
                 {
                     foreach (var src in sources)
                     {
@@ -150,10 +152,10 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
 
             if (cfg.BackupBeforeWrite && (imageWrites.Count > 0 || bioUpdates.Count > 0))
             {
-                Backup(db);
+                Backup(db, cfg);
             }
 
-            WriteBack(db, imageWrites, bioUpdates);
+            WriteBack(db, imageWrites, bioUpdates, cfg);
 
             _logger.LogInformation("[LocalMeta] 任务完成：补图 {Img} / 补简介 {Bio}", filledImg, filledBio);
             await Task.CompletedTask.ConfigureAwait(false);
@@ -351,13 +353,21 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
             return (0, 0);
         }
 
-        private void Backup(string db)
+        /// <summary>
+        /// 备份文件名前缀。轮转只清理带这个前缀的，不碰别的程序产生的备份
+        /// （实测目录里还有 .bak_ / .bak_bio_ 等手工备份）。
+        /// </summary>
+        private const string BackupPrefix = ".bak_localmeta_";
+
+        private void Backup(string db, PluginConfiguration cfg)
         {
             try
             {
-                var bak = db + ".bak_localmeta_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+                var bak = db + BackupPrefix + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
                 File.Copy(db, bak, true);
-                _logger.LogInformation("[LocalMeta] 已备份: {Bak}", bak);
+                _logger.LogInformation("[LocalMeta] 已备份: {Bak}", Path.GetFileName(bak));
+
+                RotateBackups(db, cfg.BackupMax);
             }
             catch (Exception ex)
             {
@@ -365,8 +375,43 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
             }
         }
 
+        /// <summary>
+        /// 只保留最近 max 份备份，多出来的删掉。
+        /// 不做轮转的话每天一份，实测每份约 47MB，一年就是 17GB。
+        ///
+        /// 排序依据是文件名里的 yyyyMMdd_HHmmss，字典序等于时间序。
+        /// </summary>
+        private void RotateBackups(string db, int max)
+        {
+            try
+            {
+                var keep = Math.Max(1, max);
+                var dir = Path.GetDirectoryName(db);
+                if (string.IsNullOrEmpty(dir))
+                {
+                    return;
+                }
+
+                var olds = Directory.GetFiles(dir, Path.GetFileName(db) + BackupPrefix + "*")
+                    .OrderByDescending(x => x, StringComparer.Ordinal)
+                    .Skip(keep)
+                    .ToList();
+
+                foreach (var f in olds)
+                {
+                    File.Delete(f);
+                    _logger.LogInformation("[LocalMeta] 轮转删除旧备份: {F}", Path.GetFileName(f));
+                }
+            }
+            catch (Exception ex)
+            {
+                // 轮转失败不影响主流程，下次跑还会再试
+                _logger.LogWarning(ex, "[LocalMeta] 备份轮转失败，不影响本次写库");
+            }
+        }
+
         private void WriteBack(string db, List<(string ItemId, string Path, int W, int H)> images,
-            List<(string PersonId, string Text)> bios)
+            List<(string PersonId, string Text)> bios, PluginConfiguration cfg)
         {
             if (images.Count == 0 && bios.Count == 0)
             {
@@ -384,6 +429,15 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
             {
                 foreach (var (itemId, path, w, h) in images)
                 {
+                    // 必须先删旧的再插。INSERT OR REPLACE 在这里是无效的：
+                    // 主键 Id 每次都是新 Guid，永远撞不上，REPLACE 不会触发，
+                    // 重复跑会让同一个人的 Primary 图积累成多条记录。
+                    // 只补空模式走到这里说明原本没图，DELETE 是空操作，无害。
+                    cmd.CommandText = "DELETE FROM BaseItemImageInfos WHERE ItemId=$item AND ImageType=0";
+                    cmd.Parameters.Clear();
+                    cmd.Parameters.AddWithValue("$item", itemId);
+                    cmd.ExecuteNonQuery();
+
                     cmd.CommandText =
                         "INSERT OR REPLACE INTO BaseItemImageInfos " +
                         "(Id,ItemId,ImageType,DateModified,Height,Width,Path,Blurhash) " +
@@ -398,10 +452,15 @@ namespace Jellyfin.Plugin.LocalMeta.Tasks
                     cmd.ExecuteNonQuery();
                 }
 
+                // 只补空模式：加 AND 条件兜底，防止扫描到写库之间被别的刮削器抢先写入。
+                // 覆盖模式：无条件写。
+                var bioSql = cfg.OverwriteExisting
+                    ? "UPDATE BaseItems SET Overview=$t WHERE Id=$i"
+                    : "UPDATE BaseItems SET Overview=$t WHERE Id=$i AND (Overview IS NULL OR Overview='')";
+
                 foreach (var (personId, text) in bios)
                 {
-                    cmd.CommandText =
-                        "UPDATE BaseItems SET Overview=$t WHERE Id=$i AND (Overview IS NULL OR Overview='')";
+                    cmd.CommandText = bioSql;
                     cmd.Parameters.Clear();
                     cmd.Parameters.AddWithValue("$t", text);
                     cmd.Parameters.AddWithValue("$i", personId);
