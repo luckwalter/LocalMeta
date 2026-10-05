@@ -13,12 +13,16 @@ import os
 import shutil
 import sys
 
-DEFAULT_PUBLISH = (
-    r"C:\Users\luckw\WorkBuddy\2026-10-05-11-55-15\jellyfin-plugin-localmeta"
-    r"\Jellyfin.Plugin.LocalMeta\bin\Release\net9.0\publish"
-)
-DEFAULT_DST = r"C:\Jellyfin\Data\plugins\Jellyfin.Plugin.LocalMeta"
-DEFAULT_LOG = r"C:\Users\luckw\WorkBuddy\LocalMeta-GitHub\b-plugin\deploy_copy.txt"
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+# 编译产物默认位置：相对本脚本推断，不写死绝对路径，
+# 这样仓库挪位置/换机器都能直接用。
+DEFAULT_PUBLISH = os.path.join(
+    HERE, "Jellyfin.Plugin.LocalMeta", "bin", "Release", "net9.0", "publish")
+DEFAULT_DST = os.path.join(
+    os.environ.get("JELLYFIN_DATA_DIR", r"C:\Jellyfin\Data"),
+    "plugins", "Jellyfin.Plugin.LocalMeta")
+DEFAULT_LOG = os.path.join(HERE, "deploy_copy.txt")
 
 _ap = argparse.ArgumentParser()
 _ap.add_argument("--publish", default=DEFAULT_PUBLISH)

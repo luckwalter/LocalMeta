@@ -1,10 +1,12 @@
 # LocalMeta
 
+> 维护者看 [`PROJECT.md`](PROJECT.md)：状态、待办、维护规矩、本机环境。
+
 Jellyfin 人物资料（头像 / 简介）的**本地兜底**方案。跟 MetaTube 这类远程刮削器互补：
 排在它们之后，只在字段为空时才补，**永不覆盖**远程刮到的内容。
 
 针对 Jellyfin **10.11.6** 开发，已在 **12.1.0** 上完成升级验证与适配（数据目录、数据库
-schema、插件加载三项均实测通过，见 [docs/Jellyfin-12.1.0-升级适配说明.md](docs/Jellyfin-12.1.0-升级适配说明.md)）。
+schema、插件加载三项均实测通过，见 [docs/10-升级适配-Jellyfin-12.1.0.md](docs/10-升级适配-Jellyfin-12.1.0.md)）。
 
 ## 为什么要这个
 
@@ -33,6 +35,9 @@ b-plugin/   Jellyfin 插件（C#，.NET 9）
 ## 目录
 
 ```
+PROJECT.md          项目维护入口：状态、待办、维护规矩、本机环境
+README.md           本文件：产品说明
+
 a-script/           A 阶段：守护脚本（Python）
 ├─ localmeta.py     主程序，配置驱动、幂等、只补空
 ├─ config.json      全部配置项（数据源、阈值、姓名规则）
@@ -55,8 +60,11 @@ tools/
 └─ loadtest/         加载验证工具：反射确认宿主能识别 provider
 
 docs/
-├─ Jellyfin_LocalMeta_插件方案_实施版.md
-└─ JapanPronMovie_演员资料体检与修复报告.md
+├─ 10-升级适配-Jellyfin-12.1.0.md      12.1.0 适配说明（schema 变更、数据目录坑）
+├─ 11-兼容性检查报告-12.1.0.md          升级后的检查过程与证据
+├─ 20-插件方案-实施版.md                A+B 实施方案
+├─ 30-演员资料体检与修复报告.md          数据来源与缺口分析
+└─ 40-协作-GitHub推送与上传.md          SSH 推送配置与常见故障
 ```
 
 ## 快速开始
@@ -172,7 +180,7 @@ dotnet bin\Release\net9.0\apiprobe.dll "C:\Jellyfin" NS:MediaBrowser.Controller.
 
 本仓库脚本已适配：`Type` 写法自动探测，头像判定优先用 Person 条目 Id。
 升级 Jellyfin 后直接跑 `--dry-run` 即可，无需改配置。详细见
-[docs/Jellyfin-12.1.0-升级适配说明.md](docs/Jellyfin-12.1.0-升级适配说明.md)。
+[docs/10-升级适配-Jellyfin-12.1.0.md](docs/10-升级适配-Jellyfin-12.1.0.md)。
 
 ## 状态
 

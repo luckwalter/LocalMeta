@@ -24,7 +24,7 @@ Jellyfin 人物资料的**本地兜底补齐**。每天自动扫一次缺口，�
 python localmeta.py --dry-run
 ```
 
-详见 [`../docs/Jellyfin-12.1.0-升级适配说明.md`](../docs/Jellyfin-12.1.0-升级适配说明.md)。
+详见 [`../docs/10-升级适配-Jellyfin-12.1.0.md`](../docs/10-升级适配-Jellyfin-12.1.0.md)。
 
 ## 文件
 

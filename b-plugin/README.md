@@ -15,7 +15,7 @@ Jellyfin 人物资料的**本地兜底 provider**。跟 MetaTube 这类远程刮
 逐条确认 Jellyfin 能识别出三个 provider 实现。输出见文末「验证记录」。
 
 12.1.0 的适配结论与数据库 schema 变更见
-[`../docs/Jellyfin-12.1.0-升级适配说明.md`](../docs/Jellyfin-12.1.0-升级适配说明.md)。
+[`../docs/10-升级适配-Jellyfin-12.1.0.md`](../docs/10-升级适配-Jellyfin-12.1.0.md)。
 
 ## 目录
 
