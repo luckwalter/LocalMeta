@@ -4,7 +4,8 @@
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -PackOnly    # 只编译不部署
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -Uninstall  # 卸载插件
 #
-# 前置：.NET 9 SDK。本机实测装在 <USERPROFILE>\.dotnet\dotnet.exe（9.0.318）。
+# 前置：.NET 10 SDK（插件 TFM 已随 Jellyfin 12.1.0 升到 net10.0）。
+# 本机实测装在 <USERPROFILE>\.dotnet\dotnet.exe（10.0.401）。
 # 注意本机 C:\Program Files\dotnet 是纯 runtime、没有 sdk 目录，且在 PATH 里排前面，
 # 直接敲 `dotnet` 会命中那个空壳。脚本会自动挑真正带 SDK 的那个。
 #
@@ -19,7 +20,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Proj = Join-Path $PSScriptRoot "Jellyfin.Plugin.LocalMeta\Jellyfin.Plugin.LocalMeta.csproj"
-$Out  = Join-Path $PSScriptRoot "Jellyfin.Plugin.LocalMeta\bin\Release\net9.0\publish"
+$Out  = Join-Path $PSScriptRoot "Jellyfin.Plugin.LocalMeta\bin\Release\net10.0\publish"
 
 function Say($m) { Write-Host $m }
 
@@ -50,7 +51,7 @@ if (-not $dotnet) {
     if ($cmd) { $dotnet = $cmd.Source }
 }
 if (-not $dotnet -or -not (Test-Path $dotnet)) {
-    Say "没找到带 .NET 9 SDK 的 dotnet。"
+    Say "没找到带 .NET 10 SDK 的 dotnet。"
     Say "装法：https://dot.net/v1/dotnet-install.ps1 -Channel 9.0 -InstallDir `"$env:USERPROFILE\.dotnet`""
     Say "或直接改用 A 阶段的 localmeta.py（纯 Python，无需 SDK）。"
     exit 3
@@ -65,7 +66,7 @@ if ($LASTEXITCODE -ne 0) { Say "编译失败，看上面报错"; exit $LASTEXITC
 $dll = Join-Path $Out "Jellyfin.Plugin.LocalMeta.dll"
 if (-not (Test-Path $dll)) {
     Say "产物主程序集不存在: $dll"
-    Say "（csproj 的 RemoveHostAssemblies 目标误删自身时会触发这个提示）"
+    Say "（csproj 的 PrunePublishDir 目标误删自身时会触发这个提示）"
     exit 4
 }
 

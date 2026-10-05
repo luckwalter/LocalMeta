@@ -156,7 +156,7 @@ class LoadTest
             Directory.GetCurrentDirectory(),
             Path.GetDirectoryName(typeof(LoadTest).Assembly.Location),
         };
-        var rel = Path.Combine("b-plugin", "Jellyfin.Plugin.LocalMeta", "bin", "Release", "net9.0", "publish");
+        var rel = Path.Combine("b-plugin", "Jellyfin.Plugin.LocalMeta", "bin", "Release", "net10.0", "publish");
         var relWin = rel.Replace('/', Path.DirectorySeparatorChar);
 
         foreach (var r in roots)

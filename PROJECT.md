@@ -14,7 +14,7 @@ Jellyfin 人物资料（头像 / 简介）的**本地兜底**方案。跟 MetaTu
 | 项 | 状态 |
 |---|---|
 | Jellyfin 10.11.6 | A 阶段已上线运行；B 阶段编译通过 + 加载验证通过 |
-| Jellyfin 12.1.0 | **已适配**：A 脚本 schema 兼容已修复并 dry-run 验证；B 插件实测加载成功（未改代码） |
+| Jellyfin 12.1.0 | **已适配**：A 脚本 schema 兼容已修复并 dry-run 验证；B 插件已重定 `net10.0` + 引用升到 `Jellyfin.Controller 12.1.0`，重新编译并部署，日志确认加载成功 |
 | 代码托管 | `git@github.com:luckwalter/LocalMeta.git`（main） |
 | B 阶段数据源 | **已配置**：`C:\Jellyfin\Data\LocalMeta-Sources`，日志确认「载入资料源 2 个」 |
 | B 阶段补数据效果 | **未验证**：需在后台刷新人物元数据，或跑一次「LocalMeta 人物资料补齐」计划任务 |
@@ -26,7 +26,7 @@ Jellyfin 人物资料（头像 / 简介）的**本地兜底**方案。跟 MetaTu
 ```
 a-script/   纯 Python 守护脚本 + Windows 计划任务
             零编译，改配置即生效。已上线。
-b-plugin/   Jellyfin 插件（C#，net9.0）
+b-plugin/   Jellyfin 插件（C#，net10.0）
             跟 Jellyfin 生命周期绑定，人物页刷新/重刮时自动生效。已部署待验证。
 ```
 
@@ -73,7 +73,9 @@ LocalMeta/
    或对某个演员刷新元数据，看日志 `[LocalMeta] 补简介/补头像`。
    数据源已就绪，实测 Pron 库缺口里头像能再补 4 人、简介能再补 2 人
    （增量小是正常的：A 阶段已经用同一份源补过一轮，剩下的是源里本来就没有的人）
-2. 可选：B 插件重定 `net10.0`（不重定也能跑，见 10 号文档）
+2. 可选：消除 `NU1903` 警告 —— `Microsoft.Data.Sqlite 9.0.0` 传递依赖
+   `SQLitePCLRaw.lib.e_sqlite3 2.1.10`（有已知漏洞告警）。
+   升级需重新验证 SQLite 原生库加载，风险不小，暂无收益
 
 ### 数据源位置
 
@@ -97,10 +99,10 @@ C:\Jellyfin\Data\LocalMeta-Sources\
 ### 改代码时的规矩
 
 - **A 和 B 的逻辑必须同步**：姓名归一化、罩杯映射、脏数据阈值，改一处要改两处
-- **改 Jellyfin 版本前先取证，别先改代码**：
+- **改 Jellyfin 版本前先取证，别先改代码**（目录必须是真在跑的那份，见下）：
   ```bat
   cd tools\apiprobe && dotnet build -c Release
-  dotnet bin\Release\net9.0\apiprobe.dll "C:\Program Files\Jellyfin\Server" IRemoteImageProvider
+  dotnet bin\Release\net10.0\apiprobe.dll "C:\Jellyfin" IRemoteImageProvider
   ```
 - **改数据库操作前先看 schema**：12.1.0 已经坑过一次（Id 脱钩），
   别照抄旧 SQL，用 sqlite 只读查一遍当前真实结构
@@ -146,12 +148,14 @@ GIT_SSH_COMMAND="ssh -i %USERPROFILE%/.ssh/id_ed25519_github -o IdentitiesOnly=y
 
 | 项 | 值 |
 |---|---|
-| Jellyfin 安装 | `C:\Program Files\Jellyfin\Server\` |
+| Jellyfin 12.1.0 安装 | **`C:\Jellyfin\`**（`runtimeconfig` 里 `tfm: net10.0`，自包含发布） |
+| ⚠️ 旧版残留 | `C:\Program Files\Jellyfin\Server\` 是 **10.11 的残留**（`tfm: net8.0`），别对着它取证/配置 |
 | 数据目录 | `C:\Jellyfin\Data`（12.1.0 会自动接管，别让它跑到 AppData） |
 | 数据库 | `C:\Jellyfin\Data\data\jellyfin.db` |
 | 人物头像 | `C:\Jellyfin\Data\metadata\People\` |
 | 托盘启动器 | `C:\Jellyfin\jellyfin-windows-tray\Jellyfin.Windows.Tray.exe`（在**子目录**里） |
-| .NET SDK | `%USERPROFILE%\.dotnet`（PATH 里的 `C:\Program Files\dotnet` 是空壳，只有 runtime） |
+| .NET SDK | **10.0.401**，装在 `%USERPROFILE%\.dotnet`；runtime 10.0.12（含 ASP.NET Core） |
+| ⚠️ PATH 陷阱 | `C:\Program Files\dotnet` 在 PATH 里排前面但**没有 SDK**，直接敲 `dotnet` 会报"找不到 SDK" |
 | 媒体源 | SMB：`\\HOMENAS\Porn Movie\番号`、`\\HOMENAS\Movie` |
 | 媒体库 | 电影 / Japan Pron Movie / 电视剧 |
 

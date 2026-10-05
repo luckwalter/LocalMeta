@@ -25,7 +25,7 @@ schema、插件加载三项均实测通过，见 [docs/10-升级适配-Jellyfin-
 ```
 a-script/   纯 Python 守护脚本 + Windows 计划任务
              → 零编译，改配置即生效。适合先跑起来。
-b-plugin/   Jellyfin 插件（C#，.NET 9）
+b-plugin/   Jellyfin 插件（C#，.NET 10 / net10.0）
              → 跟 Jellyfin 生命周期绑定，人物页刷新/重刮时自动生效。
 ```
 
@@ -87,7 +87,7 @@ powershell -ExecutionPolicy Bypass -File install_task.ps1
 ### B 阶段
 
 ```bat
-:: 需要 .NET 9 SDK
+:: 需要 .NET 10 SDK（12.1.0 宿主是 net10.0，插件 TFM 已同步）
 cd b-plugin
 powershell -ExecutionPolicy Bypass -File build.ps1 -PackOnly   :: 只编译
 powershell -ExecutionPolicy Bypass -File deploy.ps1           :: 部署 + 重启
@@ -148,9 +148,14 @@ provider 和任务代码不用动。
 ```bat
 cd tools\apiprobe
 dotnet build -c Release
-dotnet bin\Release\net9.0\apiprobe.dll "C:\Jellyfin" IRemoteImageProvider
-dotnet bin\Release\net9.0\apiprobe.dll "C:\Jellyfin" NS:MediaBrowser.Controller.Providers
+dotnet bin\Release\net10.0\apiprobe.dll "C:\Jellyfin" IRemoteImageProvider
+dotnet bin\Release\net10.0\apiprobe.dll "C:\Jellyfin" NS:MediaBrowser.Controller.Providers
 ```
+
+> **取证目录必须是真正跑着的那个 Jellyfin。**
+> 本机就踩过：`C:\Program Files\Jellyfin\Server` 是旧 10.11 的残留（runtimeconfig 写着
+> `net8.0`），而 12.1.0 实际装在 `C:\Jellyfin`（`net10.0`）。对着旧目录取证等于没取证。
+> 判断依据：看 `jellyfin.runtimeconfig.json` 里的 `tfm`，或日志里的 `Storage path`。
 
 ## 数据安全
 
@@ -166,7 +171,7 @@ dotnet bin\Release\net9.0\apiprobe.dll "C:\Jellyfin" NS:MediaBrowser.Controller.
 |---|---|
 | Jellyfin | **10.11.x 或 12.1.x**；其他版本需先跑 `tools/apiprobe` 取证，见下 |
 | A 阶段 | Python 3.9+（仅标准库即可跑，联网源才需要 `requests`） |
-| B 阶段 | .NET 9 SDK（12.1.0 实测可加载 net9.0 插件，不强求重定 net10.0） |
+| B 阶段 | **.NET 10 SDK**（插件 TFM `net10.0`，引用 `Jellyfin.Controller 12.1.0`） |
 
 ### Jellyfin 12.1.0 用户必读
 
@@ -188,9 +193,9 @@ dotnet bin\Release\net9.0\apiprobe.dll "C:\Jellyfin" NS:MediaBrowser.Controller.
 |---|---|
 | A 阶段 | 已上线运行，计划任务已注册验证；12.1.0 schema 变更已适配并 dry-run 验证 |
 | B 阶段 | **已部署到本地 Jellyfin，插件加载成功（`status: Active`）** |
-| B 阶段 12.1.0 | **实测加载成功**（net9.0 插件在 net10.0 宿主下正常工作） |
-| B 阶段数据源 | 待配置：配置页填两个路径后重启，才会出现「载入资料源 N 个」 |
-| B 阶段补数据效果 | **未验证** —— 需在后台刷新人物元数据后看日志有无 `[LocalMeta]` 输出 |
+| B 阶段 12.1.0 | **实测加载成功**（插件已重定 `net10.0` + 引用升到 `Jellyfin.Controller 12.1.0`） |
+| B 阶段数据源 | **已配置**（头像源 + javboss.db，日志「载入资料源 2 个」） |
+| B 阶段补数据效果 | 数据源命中已验证；实际写入待跑一次计划任务后确认 |
 
 ## 许可
 

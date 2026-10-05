@@ -142,7 +142,7 @@ python localmeta.py --dry-run
 | 关注点 | 结论 |
 |---|---|
 | 扩展点签名 | `ILocalMetadataProvider<T>` / `IRemoteImageProvider` / `IScheduledTask` / `BasePlugin<T>` / `BasePluginConfiguration` / `RemoteImageInfo` / `ImageType` / `BaseItemKind` —— 12.1.0 与 10.11 **完全一致** |
-| TFM | 插件 `net9.0`，12.1.0 宿主 `net10.0`，**实测能正常加载** |
+| TFM | 插件原为 `net9.0`，宿主 `net10.0`，**实测能正常加载**；现已同步重定为 `net10.0` 并引用 `Jellyfin.Controller 12.1.0`，详见 [12-环境升级-.NET10-SDK.md](12-环境升级-.NET10-SDK.md) |
 | 加载结果 | `Loaded plugin: "LocalMeta" "0.3.0.0"` |
 | 第三方插件 | MetaTube 2025.1102.2200.0 / ThePornDB 1.6.0.11 / TheTVDB 20.0.0.0（均为 10.11 编译）也全部加载成功 |
 
@@ -177,9 +177,12 @@ python localmeta.py --dry-run
 ```bat
 cd tools\apiprobe
 dotnet build -c Release
-dotnet bin\Release\net9.0\apiprobe.dll "C:\Program Files\Jellyfin\Server" IRemoteImageProvider
-dotnet bin\Release\net9.0\apiprobe.dll "C:\Program Files\Jellyfin\Server" NS:MediaBrowser.Controller.Providers
+dotnet bin\Release\net10.0\apiprobe.dll "C:\Jellyfin" IRemoteImageProvider
+dotnet bin\Release\net10.0\apiprobe.dll "C:\Jellyfin" NS:MediaBrowser.Controller.Providers
 ```
+
+> 目录必须是真在跑的那份 Jellyfin：`C:\Jellyfin`（`tfm: net10.0`）。
+> `C:\Program Files\Jellyfin\Server` 是旧 10.11 残留（`tfm: net8.0`），别对着它取证。
 
 数据库 schema 用 sqlite 只读查（别用 GUI 猜）：
 

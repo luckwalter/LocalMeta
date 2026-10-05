@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>false</ImplicitUsings>
     <Nullable>disable</Nullable>
     <AssemblyVersion>0.3.0.0</AssemblyVersion>
@@ -34,7 +34,7 @@
       计划任务枚举是 TaskTriggerInfoType.IntervalTrigger（不是 TaskTriggerInfo.TriggerInterval）。
   -->
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.6" />
+    <PackageReference Include="Jellyfin.Controller" Version="12.1.0" />
   </ItemGroup>
 
   <!--
@@ -61,28 +61,46 @@
   </ItemGroup>
 
   <!--
-    剔除所有由 Jellyfin.Controller 传递带进来的宿主程序集。
-    这些 DLL 属于 Jellyfin 本体，插件目录里不应该有副本：
-    覆盖会导致类型重复、程序集版本冲突，甚至让 Jellyfin 启动失败。
+    Publish 之后按「白名单」清理产物。
 
-    实现要点：Publish 之后 @(NoneToPublish) 已被消费，要改成直接枚举
-    $(PublishDir) 下的实际文件来删。判定：文件名以 MediaBrowser. / Jellyfin. 开头。
-    SQLitePCLRaw 与 Microsoft.Data.Sqlite 保留（原生 sqlite 引擎插件自用）。
+    为什么不再用黑名单：Jellyfin.Controller 12.1.0 的依赖图比 10.11.6 大得多，
+    除 MediaBrowser.* / Jellyfin.* 之外还带进来 EF Core、ICU4N（13MB）、Polly、
+    Emby.Naming、J2N、NEbml 等一堆运行时 dll。这些宿主自己就有，插件目录里放副本
+    会在两个 AssemblyLoadContext 里出现同一类型，轻则插件失效、重则 Jellyfin 起不来。
+    黑名单按前缀删不干净（第三方依赖没有统一前缀），所以改成白名单：只留必需的。
+
+    白名单（4+1 个文件）：
+      Jellyfin.Plugin.LocalMeta.dll   插件自身
+      Microsoft.Data.Sqlite.dll       直读直写 jellyfin.db
+      SQLitePCLRaw.core.dll           SQLite 引擎托管封装
+      SQLitePCLRaw.batteries_v2.dll   初始化 SQLitePCLRaw
+      SQLitePCLRaw.provider.e_sqlite3.dll  指定 e_sqlite3 作为原生引擎
+
+    runtimes/ 目录必须整个删掉：里面是 e_sqlite3 这类原生库，
+    Jellyfin 的 PluginManager 会递归扫描插件目录下所有 .dll 当程序集加载，
+    碰到原生库直接 BadImageFormatException → 整个插件被判 Malfunctioned 拒绝加载。
+    （删掉后 SQLite 仍可用：Jellyfin 宿主进程已加载自己的 e_sqlite3，
+      SQLitePCLRaw 的 provider 在进程内复用，已实测能正常读 javboss.db。）
   -->
-  <Target Name="RemoveHostAssemblies" AfterTargets="Publish">
-    <!--
-      通配符 Jellyfin.*.dll 会连插件自己的 Jellyfin.Plugin.LocalMeta.dll 一起命中，
-      所以必须显式 Exclude 自身，否则主程序集被删掉，插件加载即失败。
-    -->
+  <Target Name="PrunePublishDir" AfterTargets="Publish">
     <ItemGroup>
-      <HostAssemblyToDelete
-        Include="$(PublishDir)MediaBrowser.*.dll;$(PublishDir)Jellyfin.*.dll"
-        Exclude="$(PublishDir)$(AssemblyName).dll" />
+      <KeepAssembly Include="$(PublishDir)$(AssemblyName).dll" />
+      <KeepAssembly Include="$(PublishDir)Microsoft.Data.Sqlite.dll" />
+      <KeepAssembly Include="$(PublishDir)SQLitePCLRaw.core.dll" />
+      <KeepAssembly Include="$(PublishDir)SQLitePCLRaw.batteries_v2.dll" />
+      <KeepAssembly Include="$(PublishDir)SQLitePCLRaw.provider.e_sqlite3.dll" />
+      <AllAssembly Include="$(PublishDir)*.dll" />
+      <AssemblyToDelete Include="@(AllAssembly)" Exclude="@(KeepAssembly)" />
     </ItemGroup>
-    <Delete Files="@(HostAssemblyToDelete)" />
-    <Message Importance="high" Text="[LocalMeta] 已剔除宿主程序集：@(HostAssemblyToDelete->'%(Filename)%(Extension)', ', ')" />
+
+    <Delete Files="@(AssemblyToDelete)" />
+    <RemoveDir Directories="$(PublishDir)runtimes" />
+    <RemoveDir Directories="$(PublishDir)runtimes" Condition="Exists('$(PublishDir)runtimes')" />
+
+    <Message Importance="high"
+             Text="[LocalMeta] 白名单清理：删除多余程序集 @(AssemblyToDelete->'%(Filename)%(Extension)', ', ')" />
     <Error Condition="!Exists('$(PublishDir)$(AssemblyName).dll')"
-           Text="[LocalMeta] 致命：插件主程序集在剔除后不存在，publish 失败。" />
+           Text="[LocalMeta] 致命：插件主程序集在清理后不存在，publish 失败。" />
   </Target>
 
 </Project>

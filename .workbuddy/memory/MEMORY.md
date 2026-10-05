@@ -9,8 +9,21 @@ Jellyfin 人物资料（头像/简介）本地兜底。A 阶段 Python 守护脚
 - 代码托管 `git@github.com:luckwalter/LocalMeta.git`（main 分支）
 - 改 A 阶段的逻辑（姓名归一化 / 罩杯映射 / 脏数据阈值）必须同步改 B 阶段，反之亦然
 - 改完先 `--dry-run`，"待补"数字要和基线吻合才允许实际执行
+- **A 与 B 共用同一份数据源** `C:\Jellyfin\Data\LocalMeta-Sources\`，别各指一份
 
 ## 关键知识（踩过坑，别再踩）
+
+**B 插件三个致命坑（都只在真实数据上暴露）**
+- Newtonsoft **不能** `DeserializeObject<IEnumerable>` → `JsonSerializationException`，
+  两个 provider 构造失败，插件"加载成功"但完全不工作。用 `JArray.Parse` + try/catch
+- `appPaths.DataPath` **本身就是 `.../Data/data`**，别再拼 `"data"`；
+  而 `metadata/People` 在 DataPath 的**上一级**
+- `cup` 为 NULL 不能当索引 0（会错写成 A 罩杯），javboss 里 74% 为空。
+  A 脚本 `_cup_letter` 对空值返回空串，两边一致
+
+**判断插件是否真在工作**：光看 `Loaded plugin` 不够，要看
+`[LocalMeta] 载入资料源 N 个`，N=0 就是源没配上；还要看有没有
+`Error creating "...Provider"` —— 那条 ERR 意味着 provider 全废。
 
 **Jellyfin 数据库 schema**
 - 10.11：表名 `BaseItems` / `Peoples` / `PeopleBaseItemMap` / `BaseItemImageInfos` / `AncestorIds`
@@ -42,15 +55,32 @@ GIT_SSH_COMMAND="ssh -i %USERPROFILE%/.ssh/id_ed25519_github -o IdentitiesOnly=y
 ```
 
 **PATH 陷阱**：`C:\Program Files\dotnet` 只有 runtime 没有 SDK，排在 PATH 前面，
-直接敲 `dotnet` 命中的是空壳。真 SDK 在 `%USERPROFILE%\.dotnet`。
+直接敲 `dotnet` 命中的是空壳。真 SDK 在 `%USERPROFILE%\.dotnet`（现为 10.0.401）。
+
+**装 .NET SDK 的坑**：官方 `dotnet-install.ps1` 解压 300MB zip 时会**静默中断**，
+表现是 `--list-sdks` 看得到版本号但一编译就 `MSB4236 无法解析 SDK Microsoft.NET.Sdk`。
+判据：`sdk\<版本>\Sdks` 目录不存在、体积偏小（262M vs 完整 409M）。
+修法：自己下 zip 覆盖解压即可，不用删（批量删 1000+ 文件会被安全策略拦）。
+本机非管理员，SDK 只能装到 `%USERPROFILE%\.dotnet`。
+
+**取证目录必须是真在跑的那份 Jellyfin**：`C:\Program Files\Jellyfin\Server` 是旧
+10.11 残留（`runtimeconfig` 里 `tfm: net8.0`），12.1.0 实际在 `C:\Jellyfin`（`net10.0`）。
+对着旧目录取证等于白取证（踩过一次，11 号文档已勘误）。
+判断依据：`jellyfin.runtimeconfig.json` 的 `tfm` 或日志 `Storage path`。
+
+**12.1.0 起产物清理按白名单**（csproj `PrunePublishDir`）：Controller 12.1.0 依赖图
+比 10.11.6 大得多，带进 EF Core / ICU4N(13MB) / Polly / Emby.Naming 等第三方 dll，
+按前缀删的旧办法删不干净。只留：插件自身 + `Microsoft.Data.Sqlite` + 3 个
+`SQLitePCLRaw.*`，其余全删，`runtimes/` 整个删。
 
 **Python 占位符**：`Get-Command python` 会命中 `WindowsApps` 的应用商店占位符，
 非交互会话里是空壳（不报错、不做事、退出码 0）。
 
 ## 本机环境
 
-Jellyfin 安装 `C:\Program Files\Jellyfin\Server\`；数据目录 `C:\Jellyfin\Data`；
-人物头像 `C:\Jellyfin\Data\metadata\People\`；托盘启动器在子目录
+Jellyfin **12.1.0 装在 `C:\Jellyfin\`**（自包含发布，`net10.0`）；
+`C:\Program Files\Jellyfin\Server` 是 10.11 残留，别对着它操作；
+数据目录 `C:\Jellyfin\Data`；人物头像 `C:\Jellyfin\Data\metadata\People\`；托盘启动器在子目录
 `C:\Jellyfin\jellyfin-windows-tray\Jellyfin.Windows.Tray.exe`；
 媒体走 SMB `\\HOMENAS\Porn Movie\番号`、`\\HOMENAS\Movie`；
 媒体库：电影 / Japan Pron Movie / 电视剧。

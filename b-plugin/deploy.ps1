@@ -19,7 +19,7 @@
 #
 # 【规则 2】宿主程序集（MediaBrowser.* / Jellyfin.*）绝不能进插件目录。
 #          覆盖会导致程序集版本冲突甚至 Jellyfin 起不来。
-#          csproj 的 RemoveHostAssemblies 目标已剔除，部署时再校验一次。
+#          csproj 的 PrunePublishDir 目标已按白名单清理，部署时再校验一次。
 #
 # 【规则 3】Microsoft.Extensions.* / EntityFrameworkCore / Polly / Newtonsoft
 #          这些宿主基础设施，插件也不该带副本。实测 8 个版本与宿主不一致
@@ -47,7 +47,7 @@ $ErrorActionPreference = "Stop"
 $Root = $PSScriptRoot
 $copyPyDir = $Root
 if (-not $PublishDir) {
-    $PublishDir = Join-Path $Root "Jellyfin.Plugin.LocalMeta\bin\Release\net9.0\publish"
+    $PublishDir = Join-Path $Root "Jellyfin.Plugin.LocalMeta\bin\Release\net10.0\publish"
 }
 $JellyfinDir = "C:\Jellyfin"
 $JellyfinExe = Join-Path $JellyfinDir "jellyfin.exe"

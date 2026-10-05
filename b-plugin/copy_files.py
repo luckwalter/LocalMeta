@@ -18,7 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # 编译产物默认位置：相对本脚本推断，不写死绝对路径，
 # 这样仓库挪位置/换机器都能直接用。
 DEFAULT_PUBLISH = os.path.join(
-    HERE, "Jellyfin.Plugin.LocalMeta", "bin", "Release", "net9.0", "publish")
+    HERE, "Jellyfin.Plugin.LocalMeta", "bin", "Release", "net10.0", "publish")
 DEFAULT_DST = os.path.join(
     os.environ.get("JELLYFIN_DATA_DIR", r"C:\Jellyfin\Data"),
     "plugins", "Jellyfin.Plugin.LocalMeta")

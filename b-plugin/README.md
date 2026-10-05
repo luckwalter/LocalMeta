@@ -8,8 +8,12 @@ Jellyfin 人物资料的**本地兜底 provider**。跟 MetaTube 这类远程刮
 
 **状态：**
 - Jellyfin **10.11.6**：编译通过 + 加载验证通过（2026-10-05）
-- Jellyfin **12.1.0**：**实测加载通过**（`Loaded plugin: "LocalMeta" "0.3.0.0"`），
-  代码未做任何改动。net9.0 插件在 net10.0 宿主下正常工作，**不强求重定 net10.0**
+- Jellyfin **12.1.0**：**已随宿主升级**——TFM 重定 `net10.0`、引用升到
+  `Jellyfin.Controller 12.1.0`，重新编译并部署，实测
+  `Loaded plugin: "LocalMeta" "0.3.0.0"` + `[LocalMeta] 载入资料源 2 个`。
+
+（此前"net9.0 插件在 net10.0 宿主下也能跑"的结论仍成立，但既然宿主已是 net10.0，
+  就同步过去：接口签名经 apiprobe 取证确认与 10.11 完全一致，升级零改动。）
 
 10.11.6 的验证方式不是"看着像对"，而是用 `dotnet-setup/loadtest` 反射加载产物，
 逐条确认 Jellyfin 能识别出三个 provider 实现。输出见文末「验证记录」。
@@ -23,7 +27,7 @@ Jellyfin 人物资料的**本地兜底 provider**。跟 MetaTube 这类远程刮
 jellyfin-plugin-localmeta/
 ├─ build.ps1                                 编译 + 部署 / 卸载（含产物安全校验）
 └─ Jellyfin.Plugin.LocalMeta/
-   ├─ Jellyfin.Plugin.LocalMeta.csproj       net9.0 + Jellyfin.Controller 10.11.6
+   ├─ Jellyfin.Plugin.LocalMeta.csproj       net10.0 + Jellyfin.Controller 12.1.0
    ├─ Plugin.cs                              插件入口（BasePlugin<T> + IHasWebPages）
    ├─ PluginConfiguration.cs                 全部配置项，只增不删
    ├─ Configuration/
@@ -39,11 +43,26 @@ jellyfin-plugin-localmeta/
 
 ## 编译
 
-需要 .NET 9 SDK。本机实测装在 `<USERPROFILE>\.dotnet\dotnet.exe`（9.0.318）：
+需要 **.NET 10 SDK**。本机实测装在 `<USERPROFILE>\.dotnet\dotnet.exe`（10.0.401）：
 
 ```bat
 powershell -ExecutionPolicy Bypass -File build.ps1 -PackOnly
 ```
+
+> 注意 `C:\Program Files\dotnet` 在 PATH 里排前面但**没有 SDK**，直接敲 `dotnet`
+> 会报"No .NET SDKs were found"。`build.ps1` 会自动探测真正带 SDK 的那个。
+
+装 SDK（非管理员，装到用户目录）：
+
+```powershell
+# 官方脚本默认装在 %USERPROFILE%\.dotnet，无需管理员
+& .\dotnet-install.ps1 -Version 10.0.401 -Architecture x64 -InstallDir "$env:USERPROFILE\.dotnet"
+```
+
+> 实测坑：官方脚本解压 300MB 的 zip 时**可能中途静默中断**，
+> 表现为 `dotnet --list-sdks` 看得到版本号，一编译就报
+> `无法解析 SDK "Microsoft.NET.Sdk"` / `MSB4236`。
+> 判据是 `sdk\<版本>\Sdks` 目录不存在。修法：自己下载 zip 解压覆盖（不必删，覆盖即可）。
 
 > `-PackOnly` 只编译不部署。部署请用下面的 `deploy.ps1`（**不要**用 build.ps1 直接装）。
 
@@ -79,6 +98,15 @@ powershell -ExecutionPolicy Bypass -File deploy.ps1 -PublishDir <publish目录>
 **规则 3：`Microsoft.Extensions.*` / `EntityFrameworkCore` / `Polly` / `Newtonsoft`
 这些宿主基础设施，插件也不该带副本。** 实测 8 个版本与宿主不一致
 （如 `Microsoft.Data.Sqlite` 宿主 9.0.1125 vs 插件 9.0.24），留着可能与宿主抢程序集。
+
+> **12.1.0 起规则 2、3 的剔除方式改了。** `Jellyfin.Controller 12.1.0` 的依赖图比
+> 10.11.6 大得多，除 `MediaBrowser.*` / `Jellyfin.*` 外还带进 EF Core、
+> ICU4N（13MB）、Polly、Emby.Naming、J2N、NEbml 等一堆运行时 dll。
+> 按前缀删的旧办法（`RemoveHostAssemblies`）删不干净——第三方依赖没有统一前缀。
+> 现在改成**白名单**（csproj 的 `PrunePublishDir` 目标）：只留
+> `Jellyfin.Plugin.LocalMeta.dll` + `Microsoft.Data.Sqlite.dll` +
+> 3 个 `SQLitePCLRaw.*.dll`，其余全删，`runtimes/` 整个目录一起删。
+> 实测一次删掉 19 个多余程序集。
 
 **规则 4：加载失败后 Jellyfin 会记住。** `meta.json` 里写 `status: Malfunctioned`，
 即使文件修好也不加载，必须删掉 `meta.json` 让它重新扫描。
@@ -218,12 +246,16 @@ provider 和计划任务都不用改 —— 它们只面向接口编程。
 cd ..\dotnet-setup\apiprobe
 "<USERPROFILE>\.dotnet\dotnet.exe" build -c Release
 :: 查某个接口的完整签名
-"<USERPROFILE>\.dotnet\dotnet.exe" bin\Release\net9.0\apiprobe.dll C:\Jellyfin IRemoteImageProvider
+"<USERPROFILE>\.dotnet\dotnet.exe" bin\Release\net10.0\apiprobe.dll C:\Jellyfin IRemoteImageProvider
 :: 列出整个命名空间有哪些接口
-"<USERPROFILE>\.dotnet\dotnet.exe" bin\Release\net9.0\apiprobe.dll C:\Jellyfin NS:MediaBrowser.Controller.Providers
+"<USERPROFILE>\.dotnet\dotnet.exe" bin\Release\net10.0\apiprobe.dll C:\Jellyfin NS:MediaBrowser.Controller.Providers
 ```
 
-这比查文档可靠 —— 文档说的是 10.7/10.9，你装的是 10.11.6。
+这比查文档可靠 —— 文档说的往往落后好几个版本。
+
+> **取证目录必须是真正跑着的那个 Jellyfin。** 本机 `C:\Program Files\Jellyfin\Server`
+> 是旧 10.11 的残留（`jellyfin.runtimeconfig.json` 里 `tfm: net8.0`），
+> 12.1.0 实际装在 `C:\Jellyfin`（`tfm: net10.0`）。对着旧目录取证等于白取证。
 
 ## 已实测的扩展点清单（10.11.6）
 
@@ -249,12 +281,13 @@ cd ..\dotnet-setup\apiprobe
 ## 踩过的坑
 
 - **宿主程序集不能进插件目录。** `dotnet publish` 会把 `Jellyfin.Controller`
-  的传递依赖全带出来（38 个文件，含 604KB 的 `MediaBrowser.Controller.dll`）。
+  的传递依赖全带出来（12.1.0 下是 24 个文件，10.11.6 下 38 个）。
   覆盖进 `C:\Jellyfin` 会导致程序集版本冲突甚至 Jellyfin 起不来。
-  csproj 里加了 `RemoveHostAssemblies` 目标剔除 `MediaBrowser.*` / `Jellyfin.*`，
+  csproj 用 `PrunePublishDir` 目标按**白名单**清理（只留插件自身 + SQLite 4 件套），
   `build.ps1` 部署前再校验一次（发现残留直接 exit 5）。
-  坑点：通配符 `Jellyfin.*.dll` 会把插件自己的 `Jellyfin.Plugin.LocalMeta.dll` 一起删掉，
-  必须显式 `Exclude` 自身。
+  历史上用过按前缀删的 `RemoveHostAssemblies`，两个坑：通配符 `Jellyfin.*.dll`
+  会把插件自己的 `Jellyfin.Plugin.LocalMeta.dll` 一起删掉；且 12.1.0 带来的
+  ICU4N / EF Core / Polly 这类第三方依赖没有统一前缀，删不干净。
 - **依赖版本要对齐宿主。** Jellyfin 10.11.6 自带 `Microsoft.Data.Sqlite` 9.0.x、
   `SQLitePCLRaw` 2.1.10、`Newtonsoft.Json` 13.0.4。csproj 里的版本要跟上，
   否则插件和宿主抢 SQLite 原生库。
