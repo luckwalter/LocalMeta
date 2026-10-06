@@ -61,3 +61,6 @@ tools/avatarscan/repair_ids.txt
 
 # ---- 凭据：本机 Jellyfin API token，绝不入库 ----
 tools/avatarscan/_apitoken.txt
+
+# ---- issue 草稿：提交到 GitHub 后即删除 ----
+.workbuddy/drafts/
