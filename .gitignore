@@ -58,3 +58,6 @@ b-plugin/copy_stderr.txt
 tools/avatarscan/*.csv
 tools/avatarscan/*_names.txt
 tools/avatarscan/repair_ids.txt
+
+# ---- 凭据：本机 Jellyfin API token，绝不入库 ----
+tools/avatarscan/_apitoken.txt
