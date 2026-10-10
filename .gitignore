@@ -64,3 +64,41 @@ tools/avatarscan/_apitoken.txt
 
 # ---- issue 草稿：提交到 GitHub 后即删除 ----
 .workbuddy/drafts/
+
+# ============================================================
+# 本地开发 / 排障一次性脚本：禁止推送 GitHub（永久规则）
+# ------------------------------------------------------------
+# 以下为排障、扫描、临时验证用的 .py，常含内网 IP / 凭据调用，
+# 绝不入库。若新增同类脚本，请带前缀 nas_/jf_/bio_/mt_/probe_/
+# cup_check_/pull_/step1_ 等，会被自动忽略。
+# 历史教训：2026-10 曾把含 192.168.x.x 的 nas_*.py 险些推上 GitHub。
+# ============================================================
+nas_*.py
+nas_api*.py
+nas_pool*.py
+nas_scan*.py
+nas_port*.py
+nas_trim*.py
+nas_recheck*.py
+jf_*.py
+bio_*.py
+mt_*.py
+gf_*.py
+cup_check*.py
+probe_*.py
+pull_*.py
+step1_*.py
+step2_*.py
+step3_*.py
+verify*.py
+_gfriends_apply.py
+sshrun.py
+start_jellyfin.py
+scan8096.py
+trace6.py
+diag76.py
+dll_paths.py
+
+# 排障运行产物（日志 / 临时清单），同样不入库
+*.scan.txt
+*.diag.txt
